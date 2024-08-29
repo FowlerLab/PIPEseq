@@ -24,6 +24,7 @@ MEMORY=12
 
 snakemake -R demux_and_pair \
     --cluster "qsub -l mfree=${MEMORY}G -pe serial $THREADS" \
+    --cluster-cancel "qdel" \
     --jobs 10 \
     --latency-wait 120 \
     --config base_sample_sheet=${BASE_SAMPLE_SHEET:-$(ls -1 | grep 'ample')} countess_sample_ini=${COUNTESS_SAMPLE_INI:-$(ls -1 | grep '.ini')} \

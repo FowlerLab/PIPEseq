@@ -155,7 +155,7 @@ rule prep_fastqs_for_vampseq:
         for pear_output_path in pear_output_paths:
             output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
             for fastq_file in output_fastqs:
-                shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {params.run_path}/fastqc_output')
+                # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {params.run_path}/fastqc_output')
                 if '.assembled' in fastq_file:
                     if params.cutadapt_trim == True:
                         sample_dir_name = fastq_file.split('.')[0]
@@ -181,7 +181,7 @@ rule prep_fastqs_for_vampseq:
         print(f'run{list_of_fastqs_for_vampseq}')
                 
 
------ Run CountESS -----v
+# ----- Run CountESS -----
 rule run_countess_vampseq:
     params:
         run_path = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete',

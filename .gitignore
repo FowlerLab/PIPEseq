@@ -1,0 +1,7 @@
+*.log
+.ipynb_checkpoints
+
+# Don't push up raw data!!!
+raw_data/*/
+run_*/
+
