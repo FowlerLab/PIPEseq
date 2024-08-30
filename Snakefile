@@ -134,7 +134,7 @@ rule demux_and_pair:
 
 
 # ----- Run CutAdapt and FastQC -----
-rule prep_fastqs_for_vampseq:
+rule prep_fastqs_for_countess:
     params:
         samplesheet = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete/Complete_samplesheet.csv',
         run_path = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete',

@@ -1,3 +1,0 @@
-countess
-snakemake>=7
-cutadapt
