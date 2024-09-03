@@ -1,17 +1,18 @@
-import subprocess
 import csv
 import os
-import datetime
+from datetime import datetime
 import configparser
 
+print(config)
+
 # ----- Pipeline Parameters -----
-base_sample_sheet = config['base_sample_sheet']
-countess_sample_ini = config['countess_sample_ini']
+base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
+countess_sample_ini = f'user_input/{config["countess_sample_ini"]}'
 raw_data_directory = config['raw_data_directory']
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 
 # ----- Optional CutAdapt Parameter -----
-cutadapt_trim = bool(config['cutadapt_trim'] == True)
+cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 
 # ----- Run Configuration -----
 run_timestamp = config['run_timestamp']
@@ -22,6 +23,7 @@ threads = config['threads']
 demux_and_pair_threads = int((threads-1) * .75)
 memory = config['memory']
 # -----------------
+
 
 def get_fastq_file_paths(samplesheet, run_path):
     pear_output_path = f'{workflow.basedir}/{run_path}/pear_output'
@@ -44,6 +46,33 @@ def get_fastq_file_paths(samplesheet, run_path):
     return list_of_sample_paths
 
 
+if config['steps'] == 1:
+    step_output = f'{run_path}/demux.txt'
+else:
+    step_output = f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
+
+rule all:
+    input: step_output
+    run:
+        print('#----- Complete -----#')
+
+
+# Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
+# def index_reverse_compliment_and_trim(barcode_string, trim_amount):
+#     reverse_compliment = {
+#         'A': 'T',
+#         'T': 'A',
+#         'C': 'G',
+#         'G': 'C'
+#     }
+#     reverse_compliment_string = ''
+#     for letter in barcode_string:
+#         reverse_compliment_string = reverse_compliment[letter] + reverse_compliment_string
+    
+#     reverse_compliment_string[:trim_amount]
+#     return reverse_compliment_string[:-trim_amount]
+
+# Also use if using above: bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} --barcode-mismatches 0
         
 rule clean_and_filter_samplesheet:
     input: base_sample_sheet
@@ -51,7 +80,7 @@ rule clean_and_filter_samplesheet:
     run:
         print('#----- Create Sample Sheet With Expected bcl2fastq Column Names -----#')
 
-        bcl2fastq_samplesheet_rows = ['Sample_ID', 'Sample_Name', 'I7_Index_ID', 'I5_Index_ID', 'index', 'index2', 'Sample_Project']
+        bcl2fastq_samplesheet_rows = ['Sample_ID', 'Sample_Name', 'I7_Index_ID', 'index', 'I5_Index_ID', 'index2', 'Sample_Project']
         cleaned_samples = [['[Data]','','','','','',''], bcl2fastq_samplesheet_rows]
 
         optional_cutadapt_data = [['sample_id', 'f_amp_primer', 'r_amp_primer', 'f_amp_min_overlap', 'r_amp_min_overlap', 'target_length', 'error']] if cutadapt_trim == True else ''
@@ -64,10 +93,10 @@ rule clean_and_filter_samplesheet:
                     clean_sample = [
                         sample['Sample_ID'].replace('.', '_'),
                         sample['Sample_Name'].replace('.', '_'),
-                        sample['I7_Index_ID'],
-                        sample['I5_Index_ID'],
-                        sample['I7_Index_seq'],
-                        sample['I5_Index_seq'],
+                        sample[config['samplesheet_params']['i7_index_id_column_name']],
+                        sample[config['samplesheet_params']['i7_index_sequence_column_name']],
+                        sample[config['samplesheet_params']['i7_index_id_column_name']],
+                        sample[config['samplesheet_params']['i5_index_sequence_column_name']],
                         sample['Sample_Project']
                     ]
                     cleaned_samples.append(clean_sample)
@@ -75,12 +104,12 @@ rule clean_and_filter_samplesheet:
                     if cutadapt_trim == True:
                         sample_to_trim = [
                             sample['Sample_ID'].replace('.', '_'),
-                            sample[config['cutadapt_f_amp_primer_column']].upper(),
-                            sample[config['cutadapt_r_amp_primer_column']].upper(),
-                            config['cutadapt_f_amp_min_overlap'],
-                            config['cutadapt_r_amp_min_overlap'],
-                            sample[config['cutadapt_target_length_column']],
-                            config['cutadapt_error']
+                            sample[config['cutadapt_params']['f_amp_primer_column_name']].upper(),
+                            sample[config['cutadapt_params']['r_amp_primer_column_name']].upper(),
+                            config['cutadapt_params']['f_amp_min_overlap'],
+                            config['cutadapt_params']['r_amp_min_overlap'],
+                            sample[config['cutadapt_params']['target_length_column_name']],
+                            config['cutadapt_params']['error']
                         ]
                         optional_cutadapt_data.append(sample_to_trim)
 
@@ -95,6 +124,7 @@ rule clean_and_filter_samplesheet:
 
 rule demux_and_pair:
     input: f'{run_path}/{sample_filter}_samplesheet.csv'
+    output: f'{run_path}/demux.txt'
     params:
         input_data_dir = raw_data_directory,
         run_path = run_path,
@@ -107,13 +137,14 @@ rule demux_and_pair:
         module load pear/0.9.11
 
         pwd={workflow.basedir}
-        raw_data_directory=$pwd/raw_data/{params.input_data_dir}
+        raw_data_directory=$pwd/../../{params.input_data_dir}
         samplesheet=$pwd/{input}
-
+        touch {output}
         cd $pwd/{params.run_path}
         
         mkdir ./bcl2fastq_output/
-                
+        echo $raw_data_directory
+
         bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads}
                 
         mkdir ./pear_output/
@@ -125,7 +156,7 @@ rule demux_and_pair:
             ls -1 ./bcl2fastq_output/${{FOLDER}}/*_R1_001.fastq.gz | tr '\\n' '\\0' | xargs -0 -n 1 basename | sed 's/_R1_001.fastq.gz//' | while read SAMPLE; do
                 echo "$SAMPLE"
                 mkdir ./pear_output/${{FOLDER}}/${{SAMPLE}}
-                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 3 -j {params.bcl2fastq_processing_threads} -n 10 --barcode-mismatch 0
+                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.bcl2fastq_processing_threads} -n 10
         
             done
         
@@ -133,17 +164,17 @@ rule demux_and_pair:
         """
 
 
+
 # ----- Run CutAdapt and FastQC -----
 rule prep_fastqs_for_countess:
+    input: f'{run_path}/{sample_filter}_samplesheet.csv'
     params:
-        samplesheet = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete/Complete_samplesheet.csv',
-        run_path = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete',
         cutadapt_trim = cutadapt_trim
     run:
         print('#----- RUNNING CUTADAPT & FASTQC -----#')
-        shell(f'mkdir -p {params.run_path}/fastqc_output')
+        shell(f'mkdir -p {run_path}/fastqc_output')
         
-        pear_output_paths = get_fastq_file_paths('run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete/Complete_samplesheet.csv', params.run_path)
+        pear_output_paths = get_fastq_file_paths(input, run_path)
 
         list_of_fastqs_for_vampseq = []
         samples_to_trim = []
@@ -178,7 +209,7 @@ rule prep_fastqs_for_countess:
                     else:
                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
                         
-        print(f'run{list_of_fastqs_for_vampseq}')
+        print(f'{list_of_fastqs_for_vampseq}')
                 
 
 # ----- Run CountESS -----
@@ -186,6 +217,7 @@ rule run_countess_vampseq:
     params:
         run_path = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete',
         cutadapt_trim = cutadapt_trim
+    output: f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
     run:
         print('#----- RUNNING COUNTESS -----#')
         shell(f'mkdir {params.run_path}/countess_inis')
@@ -226,7 +258,7 @@ rule run_countess_vampseq:
                             auto_countess_config['Save Scores']['filename'] = f"'../{sample_filter}_vampseq.csv'"
                     else:
                         auto_countess_config[key][sub_key] = default_vampseq_config[key][sub_key]
-        with open(ini_file_name, 'w') as vampseq_ini:
-            auto_countess_config.write(vampseq_ini)
+        with open(output, 'w') as countess_ini:
+            auto_countess_config.write(countess_ini)
 
         # shell(f'countess_cmd {ini_file_name}')

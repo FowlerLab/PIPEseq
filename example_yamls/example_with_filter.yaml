@@ -1,0 +1,16 @@
+base_sample_sheet: F8_sampleSheet_3May24run.csv
+countess_sample_ini: vampseq_default.ini
+sample_filter: # Optional
+samplesheet_params:
+  i7_index_id_column_name: I7_Index_ID
+  i7_index_sequence_column_name: I7_Index_seq
+  i5_index_id_column_name: I5_Index_ID
+  i5_index_sequence_column_name: I5_Index_seq
+cutadapt_trim_boolean: True
+cutadapt_params: # Optional
+  error: 0.1
+  f_amp_min_overlap: 3
+  r_amp_min_overlap: 3
+  f_amp_primer_column_name: F_amp_primer
+  r_amp_primer_column_name: R_amp_primer
+  target_length_column_name: Target_length

@@ -1,0 +1,18 @@
+base_sample_sheet: samplesheet.csv
+countess_sample_ini: vampseq_default.ini
+steps: 1
+fastq_directory:
+sample_filter: TSC2
+samplesheet_params:
+  i7_index_id_column_name: I7_Index_ID
+  i7_index_sequence_column_name: index # index
+  i5_index_id_column_name: I5_Index_ID
+  i5_index_sequence_column_name: index2 # index2
+cutadapt_trim_boolean: False
+cutadapt_params: # Optional
+  error:
+  f_amp_min_overlap:
+  r_amp_min_overlap:
+  f_amp_primer_column_name:
+  r_amp_primer_column_name:
+  target_length_column_name:
