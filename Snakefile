@@ -142,12 +142,14 @@ rule demux_and_pair:
         pwd={workflow.basedir}
         raw_data_directory=$pwd/../../{params.input_data_dir}
         samplesheet=$pwd/{input}
-        touch {output}
+
+        (echo "Complete") >  {output}
         cd $pwd/{params.run_path}
         
         mkdir ./bcl2fastq_output/
         echo $raw_data_directory
 
+        echo "bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}"
         bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
                 
         mkdir ./pear_output/
@@ -169,61 +171,61 @@ rule demux_and_pair:
 
 
 # ----- Run CutAdapt and FastQC -----
-rule prep_fastqs_for_countess:
-    input: f'{run_path}/{sample_filter}_samplesheet.csv'
-    params:
-        cutadapt_trim = cutadapt_trim
-    run:
-        print('#----- RUNNING CUTADAPT & FASTQC -----#')
-        shell(f'mkdir -p {run_path}/fastqc_output')
+# rule prep_fastqs_for_countess:
+#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
+#     params:
+#         cutadapt_trim = cutadapt_trim
+#     run:
+#         print('#----- RUNNING CUTADAPT & FASTQC -----#')
+#         shell(f'mkdir -p {run_path}/fastqc_output')
         
-        pear_output_paths = get_fastq_file_paths(input, run_path)
+#         pear_output_paths = get_fastq_file_paths(input, run_path)
 
-        list_of_fastqs_for_vampseq = []
-        samples_to_trim = []
+#         list_of_fastqs_for_vampseq = []
+#         samples_to_trim = []
 
-        if params.cutadapt_trim == True:
-            with open(f'{params.run_path}/{sample_filter}_trim_data.csv') as trim_csv:
-                samples_to_trim = list(csv.DictReader(trim_csv))
+#         if params.cutadapt_trim == True:
+#             with open(f'{params.run_path}/{sample_filter}_trim_data.csv') as trim_csv:
+#                 samples_to_trim = list(csv.DictReader(trim_csv))
 
-        for pear_output_path in pear_output_paths:
-            output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
-            for fastq_file in output_fastqs:
-                # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
-                if '.assembled' in fastq_file:
-                    if params.cutadapt_trim == True:
-                        sample_dir_name = fastq_file.split('.')[0]
-                        sample_id = '_'.join(sample_dir_name.split('_')[:-1])
+#         for pear_output_path in pear_output_paths:
+#             output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
+#             for fastq_file in output_fastqs:
+#                 # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
+#                 if '.assembled' in fastq_file:
+#                     if params.cutadapt_trim == True:
+#                         sample_dir_name = fastq_file.split('.')[0]
+#                         sample_id = '_'.join(sample_dir_name.split('_')[:-1])
                         
-                        trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
-                        f_amp_primer = trimmed_sample_data['f_amp_primer']
-                        r_amp_primer = trimmed_sample_data['r_amp_primer']
-                        f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
-                        r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
-                        target_length = trimmed_sample_data['target_length']
-                        error = trimmed_sample_data['error']
-                        trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
+#                         trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
+#                         f_amp_primer = trimmed_sample_data['f_amp_primer']
+#                         r_amp_primer = trimmed_sample_data['r_amp_primer']
+#                         f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
+#                         r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
+#                         target_length = trimmed_sample_data['target_length']
+#                         error = trimmed_sample_data['error']
+#                         trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
             
-                        shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
+#                         shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
                         
-                        shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
-                        list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
+#                         shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
+#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
                     
-                    else:
-                        list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
+#                     else:
+#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
                         
-        print(f'{list_of_fastqs_for_vampseq}')
+#         print(f'{list_of_fastqs_for_vampseq}')
                 
 
 # ----- Run CountESS -----
 rule run_countess_vampseq:
-    input: f'{run_path}/{sample_filter}_samplesheet.csv'
+    input: f'{run_path}/demux.txt'
     output: f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
     run:
         print('#----- RUNNING COUNTESS -----#')
         shell(f'mkdir -p {run_path}/countess_inis')
 
-        pear_output_paths = get_fastq_file_paths(f'{input}', run_path)
+        pear_output_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)
 
         files_for_countess = []
 
