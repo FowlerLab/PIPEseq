@@ -22,11 +22,13 @@
 - Copy your Samplesheet for bcl2fastq and barcode-variant map for VAMP-seq into the user_input folder
 - Create an ini file from CountESS GUI if necessary
 - Fill out at least base_sample_sheet, countess_sample_ini, and samplesheet_params in user_variables.yaml file, see User Variables section below
+- Run pipeline with `bash run.sh`
 
 #### The Pipeline
 - Rules:
     - clean_and_filter_samplesheet - modifies samplesheet to fit expected format for bcl2fastq
     - demux_and_pair - runs bcl2fastq and pear for demuxing and pairing reads
+      - The bcl2fastq command in line 148 may need to be modified to include some arguments (ex. --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0)
     - prep_fastqs_for_countess - trims fastqs (if necessary) and runs FastQC on all FASTQ files
 
 #### User Variables

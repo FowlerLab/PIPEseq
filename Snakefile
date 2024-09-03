@@ -8,9 +8,11 @@ print(config)
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
 countess_sample_ini = f'user_input/{config["countess_sample_ini"]}'
-raw_data_directory = config['raw_data_directory']
+barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
+bcl2fastq_argumets = config['bcl2fastq_arguments']
 
+raw_data_directory = config['raw_data_directory']
 # ----- Optional CutAdapt Parameter -----
 cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 
@@ -51,6 +53,7 @@ if config['steps'] == 1:
 else:
     step_output = f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
 
+
 rule all:
     input: step_output
     run:
@@ -72,7 +75,6 @@ rule all:
 #     reverse_compliment_string[:trim_amount]
 #     return reverse_compliment_string[:-trim_amount]
 
-# Also use if using above: bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} --barcode-mismatches 0
         
 rule clean_and_filter_samplesheet:
     input: base_sample_sheet
@@ -128,6 +130,7 @@ rule demux_and_pair:
     params:
         input_data_dir = raw_data_directory,
         run_path = run_path,
+        bcl2fastq_arguments = config['bcl2fastq_arguments'],
         bcl2fastq_processing_threads = threads - 4,
         bcl2fastq_loading_threads = 2,
         bcl2fastq_writing_threads = 2
@@ -145,7 +148,7 @@ rule demux_and_pair:
         mkdir ./bcl2fastq_output/
         echo $raw_data_directory
 
-        bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads}
+        bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
                 
         mkdir ./pear_output/
 
@@ -186,7 +189,7 @@ rule prep_fastqs_for_countess:
         for pear_output_path in pear_output_paths:
             output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
             for fastq_file in output_fastqs:
-                # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {params.run_path}/fastqc_output')
+                # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
                 if '.assembled' in fastq_file:
                     if params.cutadapt_trim == True:
                         sample_dir_name = fastq_file.split('.')[0]
@@ -203,7 +206,7 @@ rule prep_fastqs_for_countess:
             
                         shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
                         
-                        shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{params.run_path}/fastqc_output')
+                        shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
                     
                     else:
@@ -214,21 +217,19 @@ rule prep_fastqs_for_countess:
 
 # ----- Run CountESS -----
 rule run_countess_vampseq:
-    params:
-        run_path = 'run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete',
-        cutadapt_trim = cutadapt_trim
+    input: f'{run_path}/{sample_filter}_samplesheet.csv'
     output: f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
     run:
         print('#----- RUNNING COUNTESS -----#')
-        shell(f'mkdir {params.run_path}/countess_inis')
+        shell(f'mkdir -p {run_path}/countess_inis')
 
-        pear_output_paths = get_fastq_file_paths('run-240807_VH00979_267_AAFTYGJM5-202408190629-Complete/Complete_samplesheet.csv', params.run_path)
+        pear_output_paths = get_fastq_file_paths(f'{input}', run_path)
 
         files_for_countess = []
 
         for pear_output_path in pear_output_paths:
             sample_name = pear_output_path.split('/')[-1]
-            if params.cutadapt_trim == True:
+            if cutadapt_trim == True:
                 files_for_countess.append(f'{pear_output_path}/{sample_name}.assembled.trimmed.fastq')
             else:
                 files_for_countess.append(f'{pear_output_path}/{sample_name}.assembled.fastq')
@@ -236,13 +237,12 @@ rule run_countess_vampseq:
         print(f'count{files_for_countess}')
     
         
-        default_vampseq_ini = 'vampseq_default.ini'
         default_vampseq_config = configparser.ConfigParser()
-        default_vampseq_config.read(default_vampseq_ini)
+        default_vampseq_config.read(countess_sample_ini)
         
         print(default_vampseq_config.sections())
-        
-        ini_file_name = f'{params.run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
+        print('hiii')
+    
 
         auto_countess_config = configparser.ConfigParser()
 
@@ -253,12 +253,16 @@ rule run_countess_vampseq:
                 for sub_key in default_vampseq_config[key]:
                     if key == 'FASTQ Load' and 'filename' in sub_key:
                         for index in range(len(files_for_countess)):
-                            auto_countess_config['FASTQ Load'][f'files.{index}.filename'] = f"'../{files_for_countess[index]}'"
+                            auto_countess_config['FASTQ Load'][f'files.{index}.filename'] = f"'../../{files_for_countess[index]}'"
+                    if key == 'Barcode Map Load' and 'filename' in sub_key:
+                        auto_countess_config['Barcode Map Load']['files.0.filename'] = f"'../../{barcode_variant_map}'"
                     if key == 'Save Scores' and 'filename' in sub_key:
-                            auto_countess_config['Save Scores']['filename'] = f"'../{sample_filter}_vampseq.csv'"
+                        auto_countess_config['Save Scores']['filename'] = f"'../{sample_filter}_countess_output.csv'"
                     else:
                         auto_countess_config[key][sub_key] = default_vampseq_config[key][sub_key]
-        with open(output, 'w') as countess_ini:
+        print('ahhh')
+        print(auto_countess_config.sections())
+        with open(f'{output}', 'w') as countess_ini:
             auto_countess_config.write(countess_ini)
-
-        # shell(f'countess_cmd {ini_file_name}')
+            
+        shell(f'countess_cmd {output}')
