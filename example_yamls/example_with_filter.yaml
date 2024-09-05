@@ -1,16 +1,20 @@
-base_sample_sheet: F8_sampleSheet_3May24run.csv
-countess_sample_ini: vampseq_default.ini
-sample_filter: # Optional
+base_sample_sheet: samplesheet.csv
+countess_sample_ini: vampseq_default_map.ini
+barcode_variant_map: pacbio_output_TSC2lib2.csv.gz
+steps:
+fastq_directory:
+sample_filter: TSC2_L2
 samplesheet_params:
   i7_index_id_column_name: I7_Index_ID
-  i7_index_sequence_column_name: I7_Index_seq
+  i7_index_sequence_column_name: index # index
   i5_index_id_column_name: I5_Index_ID
-  i5_index_sequence_column_name: I5_Index_seq
-cutadapt_trim_boolean: True
+  i5_index_sequence_column_name: index2 # index2
+bcl2fastq_arguments: --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0 
+cutadapt_trim_boolean: False
 cutadapt_params: # Optional
-  error: 0.1
-  f_amp_min_overlap: 3
-  r_amp_min_overlap: 3
-  f_amp_primer_column_name: F_amp_primer
-  r_amp_primer_column_name: R_amp_primer
-  target_length_column_name: Target_length
+  error:
+  f_amp_min_overlap:
+  r_amp_min_overlap:
+  f_amp_primer_column_name:
+  r_amp_primer_column_name:
+  target_length_column_name:
