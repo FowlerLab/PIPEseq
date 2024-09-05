@@ -23,13 +23,16 @@
 - Create an ini file from CountESS GUI if necessary
 - Fill out at least base_sample_sheet, countess_sample_ini, and samplesheet_params in user_variables.yaml file, see User Variables section below
 - Run pipeline with `bash run.sh`
+- Pipeline will produce a run directory with the name run-`Sample Filter`-`Timestamp in YYYYMMDDHHMM`-`Parent Folder Name` (ex. run-TSC2_L1-202409041630-240827_VH00123_477_AACL7HVHV)
+- Will produce a bcl2fastq_output folder containing unpaired fastqs, a pear_output folder containing paired fastqs, and a countess_inis folder countaining the ini file that was generated from the template, with the correct input and output file names, the samplesheet reformatted for bcl2fastq, and the CountESS output file with the name `Sample Filter`_countess_output.csv (ex. TSC2_L1_countess_output.csv), along with an empty text file called demux.txt for Snakemake
 
 #### The Pipeline
 - Rules:
     - clean_and_filter_samplesheet - modifies samplesheet to fit expected format for bcl2fastq
-    - demux_and_pair - runs bcl2fastq and pear for demuxing and pairing reads
+    - demux_and_pair - runs bcl2fastq to convert cbcl files to unpaired .fastq.gz files, and pear to convert to paired .fastq files for demuxing and pairing reads
       - The bcl2fastq command in line 148 may need to be modified to include some arguments (ex. --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0)
     - prep_fastqs_for_countess - trims fastqs (if necessary) and runs FastQC on all FASTQ files
+    - run_countess_vampseq = creates and executes a CountESS ini file from the assembled .fastq files produced
 
 #### User Variables
 - The user_variables.yaml file can be modified with the following parameters, examples in example_yamls/:
