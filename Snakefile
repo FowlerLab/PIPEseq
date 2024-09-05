@@ -18,8 +18,8 @@ cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 
 # ----- Run Configuration -----
 run_timestamp = config['run_timestamp']
-run_name = f'{run_timestamp}-{sample_filter}'
-run_path = f'run-{raw_data_directory}-{run_name}'
+run_name = f'{sample_filter}-{run_timestamp}'
+run_path = f'run-{run_name}-{raw_data_directory}'
 
 threads = config['threads']
 demux_and_pair_threads = int((threads-1) * .75)
