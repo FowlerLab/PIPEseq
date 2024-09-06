@@ -2,18 +2,18 @@
 
 # ----- Parameters (Optional) -----
 RAW_DATA_DIRECTORY=
-THREADS=12
-MEMORY=12
+THREADS=24
+MEMORY=36
 # ----- End Parameters -----
 
-# module load fastqc/0.12.1
+RUN_TIMESTAMP=$(date +%Y%m%d_%H%M) 
 
 # snakemake \
-#     --cores 1 \
+#     --cores 4 \
 #     --latency-wait 120 \
 #     --configfile "user_variables.yaml" \
 #     --config threads=$THREADS memory=$MEMORY \
-#     run_timestamp=$(date +%Y%m%d_%H%M) raw_data_directory=${RAW_DATA_DIRECTORY:-$(basename $(cd ../ && pwd))}
+#     run_timestamp=$RUN_TIMESTAMP raw_data_directory=${RAW_DATA_DIRECTORY:-$(basename $(cd ../ && pwd))}
     
 snakemake \
     --cluster "qsub -l mfree=${MEMORY}G -pe serial $THREADS" \
@@ -22,4 +22,4 @@ snakemake \
     --latency-wait 120 \
     --configfile "user_variables.yaml" \
     --config threads=$THREADS memory=$MEMORY \
-    run_timestamp=$(date +%Y%m%d_%H%M) raw_data_directory=${RAW_DATA_DIRECTORY:-$(basename $(cd ../ && pwd))}
+    run_timestamp=$RUN_TIMESTAMP raw_data_directory=${RAW_DATA_DIRECTORY:-$(basename $(cd ../ && pwd))}

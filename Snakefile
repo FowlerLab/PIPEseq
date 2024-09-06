@@ -8,13 +8,15 @@ print(config)
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
 countess_sample_ini = f'user_input/{config["countess_sample_ini"]}'
-barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
+countess_map = f'user_input/{config["countess_map"]}'
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
 
 raw_data_directory = config['raw_data_directory']
-# ----- Optional CutAdapt Parameter -----
+# ----- Optional Parameters -----
 cutadapt_trim = bool(config['cutadapt_trim_boolean'])
+trim_reverse_sequence = bool(config['trim_reverse_sequence'])
+index_trim_length = config['index_trim_length']
 
 # ----- Run Configuration -----
 run_timestamp = config['run_timestamp']
@@ -36,7 +38,7 @@ def get_fastq_file_paths(samplesheet, run_path):
         all_fastq_directories = all_fastq_directories + os.listdir(f'{pear_output_path}/{sample_project}')
         
     list_of_sample_paths = []
-    with open(samplesheet, newline='') as samplesheet:
+    with open(f'{samplesheet}', newline='') as samplesheet:
         next(samplesheet)
         samples = csv.DictReader(samplesheet)
         for sample in samples:
@@ -61,19 +63,19 @@ rule all:
 
 
 # Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
-# def index_reverse_compliment_and_trim(barcode_string, trim_amount):
-#     reverse_compliment = {
-#         'A': 'T',
-#         'T': 'A',
-#         'C': 'G',
-#         'G': 'C'
-#     }
-#     reverse_compliment_string = ''
-#     for letter in barcode_string:
-#         reverse_compliment_string = reverse_compliment[letter] + reverse_compliment_string
+def index_reverse_compliment_and_trim(barcode_string, trim_amount):
+    reverse_compliment = {
+        'A': 'T',
+        'T': 'A',
+        'C': 'G',
+        'G': 'C'
+    }
+    reverse_compliment_string = ''
+    for letter in barcode_string:
+        reverse_compliment_string = reverse_compliment[letter] + reverse_compliment_string
     
-#     reverse_compliment_string[:trim_amount]
-#     return reverse_compliment_string[:-trim_amount]
+    reverse_compliment_string[:trim_amount]
+    return reverse_compliment_string[:-trim_amount]
 
         
 rule clean_and_filter_samplesheet:
@@ -92,15 +94,26 @@ rule clean_and_filter_samplesheet:
             
             for sample in samples:
                 if sample_filter == 'Complete' or sample_filter in sample['Sample_ID'][:len(sample_filter)]:
-                    clean_sample = [
-                        sample['Sample_ID'].replace('.', '_'),
-                        sample['Sample_Name'].replace('.', '_'),
-                        sample[config['samplesheet_params']['i7_index_id_column_name']],
-                        sample[config['samplesheet_params']['i7_index_sequence_column_name']],
-                        sample[config['samplesheet_params']['i7_index_id_column_name']],
-                        sample[config['samplesheet_params']['i5_index_sequence_column_name']],
-                        sample['Sample_Project']
-                    ]
+                    if trim_reverse_sequence == True:
+                        clean_sample = [
+                            sample['Sample_ID'].replace('.', '_'),
+                            sample['Sample_Name'].replace('.', '_'),
+                            sample[config['samplesheet_params']['i7_index_id_column_name']],
+                            index_reverse_compliment_and_trim(sample[config['samplesheet_params']['i7_index_sequence_column_name']], index_trim_length),
+                            sample[config['samplesheet_params']['i7_index_id_column_name']],
+                            index_reverse_compliment_and_trim(sample[config['samplesheet_params']['i5_index_sequence_column_name']], index_trim_length),
+                            sample['Sample_Project']
+                        ]
+                    else:
+                        clean_sample = [
+                            sample['Sample_ID'].replace('.', '_'),
+                            sample['Sample_Name'].replace('.', '_'),
+                            sample[config['samplesheet_params']['i7_index_id_column_name']],
+                            sample[config['samplesheet_params']['i7_index_sequence_column_name']],
+                            sample[config['samplesheet_params']['i7_index_id_column_name']],
+                            sample[config['samplesheet_params']['i5_index_sequence_column_name']],
+                            sample['Sample_Project']
+                        ]
                     cleaned_samples.append(clean_sample)
                     
                     if cutadapt_trim == True:
@@ -171,55 +184,56 @@ rule demux_and_pair:
 
 
 # ----- Run CutAdapt and FastQC -----
-# rule prep_fastqs_for_countess:
-#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
-#     params:
-#         cutadapt_trim = cutadapt_trim
-#     run:
-#         print('#----- RUNNING CUTADAPT & FASTQC -----#')
-#         shell(f'mkdir -p {run_path}/fastqc_output')
+rule prep_fastqs_for_countess:
+    input:
+        samplesheet = f'{run_path}/{sample_filter}_samplesheet.csv',
+        demux_output = f'{run_path}/demux.txt'
+    output: f'{run_path}/prep.txt'
+    run:
+        print('#----- RUNNING CUTADAPT & FASTQC -----#')
+        # shell(f'mkdir -p {run_path}/fastqc_output')
         
-#         pear_output_paths = get_fastq_file_paths(input, run_path)
+        pear_output_paths = get_fastq_file_paths(input.samplesheet, run_path)
 
-#         list_of_fastqs_for_vampseq = []
-#         samples_to_trim = []
+        list_of_fastqs_for_vampseq = []
+        samples_to_trim = []
 
-#         if params.cutadapt_trim == True:
-#             with open(f'{params.run_path}/{sample_filter}_trim_data.csv') as trim_csv:
-#                 samples_to_trim = list(csv.DictReader(trim_csv))
+        if cutadapt_trim == True:
+            with open(f'{run_path}/{sample_filter}_trim_data.csv') as trim_csv:
+                samples_to_trim = list(csv.DictReader(trim_csv))
 
-#         for pear_output_path in pear_output_paths:
-#             output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
-#             for fastq_file in output_fastqs:
-#                 # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
-#                 if '.assembled' in fastq_file:
-#                     if params.cutadapt_trim == True:
-#                         sample_dir_name = fastq_file.split('.')[0]
-#                         sample_id = '_'.join(sample_dir_name.split('_')[:-1])
+        for pear_output_path in pear_output_paths:
+            output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
+            for fastq_file in output_fastqs:
+                # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
+                if '.assembled' in fastq_file:
+                    if cutadapt_trim == True:
+                        sample_dir_name = fastq_file.split('.')[0]
+                        sample_id = '_'.join(sample_dir_name.split('_')[:-1])
                         
-#                         trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
-#                         f_amp_primer = trimmed_sample_data['f_amp_primer']
-#                         r_amp_primer = trimmed_sample_data['r_amp_primer']
-#                         f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
-#                         r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
-#                         target_length = trimmed_sample_data['target_length']
-#                         error = trimmed_sample_data['error']
-#                         trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
+                        trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
+                        f_amp_primer = trimmed_sample_data['f_amp_primer']
+                        r_amp_primer = trimmed_sample_data['r_amp_primer']
+                        f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
+                        r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
+                        target_length = trimmed_sample_data['target_length']
+                        error = trimmed_sample_data['error']
+                        trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
             
-#                         shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
+                        shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
                         
-#                         shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
-#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
+                        # shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
+                        list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
                     
-#                     else:
-#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
-                        
-#         print(f'{list_of_fastqs_for_vampseq}')
+                    else:
+                        list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
+        shell(f'touch {output}')                
+        print(f'{list_of_fastqs_for_vampseq}')
                 
 
 # ----- Run CountESS -----
 rule run_countess_vampseq:
-    input: f'{run_path}/demux.txt'
+    input: [f'{run_path}/prep.txt', f'{run_path}/demux.txt']
     output: f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
     run:
         print('#----- RUNNING COUNTESS -----#')
@@ -243,7 +257,6 @@ rule run_countess_vampseq:
         default_vampseq_config.read(countess_sample_ini)
         
         print(default_vampseq_config.sections())
-        print('hiii')
     
 
         auto_countess_config = configparser.ConfigParser()
@@ -256,13 +269,12 @@ rule run_countess_vampseq:
                     if key == 'FASTQ Load' and 'filename' in sub_key:
                         for index in range(len(files_for_countess)):
                             auto_countess_config['FASTQ Load'][f'files.{index}.filename'] = f"'../../{files_for_countess[index]}'"
-                    if key == 'Barcode Map Load' and 'filename' in sub_key:
-                        auto_countess_config['Barcode Map Load']['files.0.filename'] = f"'../../{barcode_variant_map}'"
+                    if key == 'Load Map' and 'filename' in sub_key:
+                        auto_countess_config['Load Map']['files.0.filename'] = f"'../../{countess_map}'"
                     if key == 'Save Scores' and 'filename' in sub_key:
                         auto_countess_config['Save Scores']['filename'] = f"'../{sample_filter}_countess_output.csv'"
                     else:
                         auto_countess_config[key][sub_key] = default_vampseq_config[key][sub_key]
-        print('ahhh')
         print(auto_countess_config.sections())
         with open(f'{output}', 'w') as countess_ini:
             auto_countess_config.write(countess_ini)
