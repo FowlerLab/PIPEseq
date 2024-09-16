@@ -2,8 +2,8 @@
 
 # ----- Parameters (Optional) -----
 RAW_DATA_DIRECTORY=
-THREADS=12
-MEMORY=12
+THREADS=24
+MEMORY=36
 # ----- End Parameters -----
 
 # module load fastqc/0.12.1
