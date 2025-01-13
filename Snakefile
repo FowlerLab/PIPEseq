@@ -2,63 +2,43 @@ import csv
 import os
 from datetime import datetime
 import configparser
+import seaborn as sns
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
 print(config)
+modules = config['modules']
 
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
-countess_sample_ini = f'user_input/{config["countess_sample_ini"]}'
-barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
+countess_sample_ini = config["countess_sample_ini"]
+barcode_variant_map = config["barcode_variant_map"]
+count_cutoff = config["count_cutoff"]
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
 
-raw_data_directory = config['raw_data_directory']
+raw_data_directory = config['input_data_path']
 # ----- Optional CutAdapt Parameter -----
 cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 
 # ----- Run Configuration -----
-run_timestamp = config['run_timestamp']
-run_name = f'{sample_filter}-{run_timestamp}'
-run_path = f'run-{run_name}-{raw_data_directory}'
+run_path = config['run_name'] if config['run_name'] else config['run_timestamp']
 
 threads = config['threads']
-demux_and_pair_threads = int((threads-1) * .75)
 memory = config['memory']
 # -----------------
 
-
-def get_fastq_file_paths(samplesheet, run_path):
-    pear_output_path = f'{workflow.basedir}/{run_path}/pear_output'
-    all_fastq_directories = []
-
-    list_of_sample_projects = os.listdir(pear_output_path)
-    for sample_project in list_of_sample_projects:
-        all_fastq_directories = all_fastq_directories + os.listdir(f'{pear_output_path}/{sample_project}')
-        
-    list_of_sample_paths = []
-    with open(samplesheet, newline='') as samplesheet:
-        next(samplesheet)
-        samples = csv.DictReader(samplesheet)
-        for sample in samples:
-            sample_dir_name = [sample_name for sample_name in all_fastq_directories if sample['Sample_ID'] in sample_name]
-            if len(sample_dir_name) > 0:
-                sample_project = sample['Sample_Project']
-                list_of_sample_paths.append(f'{run_path}/pear_output/{sample_project}/{sample_dir_name[0]}')
-    print(f'list paths{list_of_sample_paths}')
-    return list_of_sample_paths
-
-
-if config['steps'] == 1:
-    step_output = f'{run_path}/demux.txt'
+if config['run_type'] == 'demux':
+    step_output = [f'{run_path}/demux.txt', f'{run_path}/prep_fastqs.txt']
 else:
-    step_output = f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
+    step_output = f'{run_path}/final_scores.csv'
 
 
 rule all:
     input: step_output
     run:
         print('#----- Complete -----#')
-
 
 # Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
 # def index_reverse_compliment_and_trim(barcode_string, trim_amount):
@@ -74,7 +54,6 @@ rule all:
     
 #     reverse_compliment_string[:trim_amount]
 #     return reverse_compliment_string[:-trim_amount]
-
         
 rule clean_and_filter_samplesheet:
     input: base_sample_sheet
@@ -131,7 +110,7 @@ rule demux_and_pair:
         input_data_dir = raw_data_directory,
         run_path = run_path,
         bcl2fastq_arguments = config['bcl2fastq_arguments'],
-        bcl2fastq_processing_threads = threads - 4,
+        processing_threads = threads - 4,
         bcl2fastq_loading_threads = 2,
         bcl2fastq_writing_threads = 2
     shell:
@@ -140,19 +119,18 @@ rule demux_and_pair:
         module load pear/0.9.11
 
         pwd={workflow.basedir}
-        raw_data_directory=$pwd/../../{params.input_data_dir}
         samplesheet=$pwd/{input}
 
-        (echo "Complete") >  {output}
         cd $pwd/{params.run_path}
         
-        mkdir ./bcl2fastq_output/
-        echo $raw_data_directory
+        mkdir -p ./bcl2fastq_output/
+        echo {params.input_data_dir}
 
-        echo "bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}"
-        bcl2fastq -R $raw_data_directory -o ./bcl2fastq_output/ --sample-sheet $samplesheet --no-lane-splitting -p {params.bcl2fastq_processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
-                
-        mkdir ./pear_output/
+        bcl2fastq -R "{params.input_data_dir}" -o ./bcl2fastq_output/ --sample-sheet "$samplesheet" --no-lane-splitting -p {params.processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
+
+        touch {output}
+
+        mkdir -p ./pear_output/
 
         ls -d ./bcl2fastq_output/*/ | tr '\\n' '\\0' | xargs -0 -n 1 basename | grep -v -E 'Reports|Stats' | while read FOLDER; do
             echo "$FOLDER"
@@ -161,110 +139,206 @@ rule demux_and_pair:
             ls -1 ./bcl2fastq_output/${{FOLDER}}/*_R1_001.fastq.gz | tr '\\n' '\\0' | xargs -0 -n 1 basename | sed 's/_R1_001.fastq.gz//' | while read SAMPLE; do
                 echo "$SAMPLE"
                 mkdir ./pear_output/${{FOLDER}}/${{SAMPLE}}
-                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.bcl2fastq_processing_threads} -n 10
+                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.processing_threads} -n 10
         
             done
         
         done
+        
+        touch peared.txt
+        """
+                              
+
+# rule trim_fastqs:
+#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
+#     run:
+#         if cutadapt_trim == True:
+#             print('#----- RUNNING CUTADAPT & FASTQC -----#')
+            
+#             pear_output_paths = get_fastq_file_paths(f'{input}', run_path)
+    
+#             samples_to_trim = []
+    
+#             with open(f'{run_path}/{sample_filter}_trim_data.csv') as trim_csv:
+#                 samples_to_trim = list(csv.DictReader(trim_csv))
+            
+#             for pear_output_path in pear_output_paths:
+#                 assembled_fastq_file = pear_output_path.split('/')[-1]
+#                 assembled_fastq_path = f'{pear_output_path}/{assembled_fastq_file}'
+                
+#                 sample_dir_name = fastq_file.split('.')[0]
+#                 sample_id = '_'.join(sample_dir_name.split('_')[:-1])
+                
+#                 trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
+#                 f_amp_primer = trimmed_sample_data['f_amp_primer']
+#                 r_amp_primer = trimmed_sample_data['r_amp_primer']
+#                 f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
+#                 r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
+#                 target_length = trimmed_sample_data['target_length']
+#                 error = trimmed_sample_data['error']
+#                 trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
+    
+#                 shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{assembled_fastq_file}')
+
+# def get_extensions(cutadapt_trim):
+#     if cutadapt_trim == True:
+#         return ['assembled.fastq', 'assembled.trimmed.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']
+#     else:
+#         return ['assembled.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']
+
+
+def get_fastq_file_paths(samplesheet, run_path):
+    try:
+        pear_output_path = f'{workflow.basedir}/{run_path}/pear_output'
+        all_fastq_directories = []
+    
+        list_of_sample_projects = os.listdir(pear_output_path)
+        for sample_project in list_of_sample_projects:
+            all_fastq_directories = all_fastq_directories + os.listdir(f'{pear_output_path}/{sample_project}')
+            
+        list_of_sample_paths = []
+        with open(samplesheet, newline='') as samplesheet:
+            next(samplesheet)
+            samples = csv.DictReader(samplesheet)
+            for sample in samples:
+                sample_dir_name = [sample_name for sample_name in all_fastq_directories if sample['Sample_ID'] in sample_name]
+                if len(sample_dir_name) > 0:
+                    sample_project = sample['Sample_Project']
+                    list_of_sample_paths.append(f'{sample_project}/{sample_dir_name[0]}/{sample_dir_name[0]}')
+        print(f'list paths{list_of_sample_paths}')
+        return list_of_sample_paths 
+    except:
+        return []
+                       
+# ----- Run CutAdapt and FastQC -----
+rule prep_fastqs_for_countess:
+    input: f'{run_path}/demux.txt'
+    output: f'{run_path}/prep_fastqs.txt'
+    params:
+        run_path = run_path,
+        fastq_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path),
+        fastqc_module = modules['fastqc'],
+    shell:
+        """
+        FASTQC_OUTPUT_PATH="{params.run_path}/fastqc_output"
+        mkdir -p $FASTQC_OUTPUT_PATH
+
+        module load {params.fastqc_module}
+
+        for FASTQ_PATH in {params.fastq_paths}; do
+            FOLDER=$(basename $(dirname $FASTQ_PATH))
+            FASTQC_THREADS=$(find $FASTQ_PATH/. -name '*.fastq' | wc -l)
+            
+            mkdir -p $FASTQC_OUTPUT_PATH/$FOLDER
+            mkdir -p $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)
+
+            echo "fastqc $FASTQ_PATH/*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)"
+            fastqc $FASTQ_PATH/*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)
+            
+        done
+        touch {output}
         """
 
-
-
-# ----- Run CutAdapt and FastQC -----
-# rule prep_fastqs_for_countess:
-#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
-#     params:
-#         cutadapt_trim = cutadapt_trim
-#     run:
-#         print('#----- RUNNING CUTADAPT & FASTQC -----#')
-#         shell(f'mkdir -p {run_path}/fastqc_output')
-        
-#         pear_output_paths = get_fastq_file_paths(input, run_path)
-
-#         list_of_fastqs_for_vampseq = []
-#         samples_to_trim = []
-
-#         if params.cutadapt_trim == True:
-#             with open(f'{params.run_path}/{sample_filter}_trim_data.csv') as trim_csv:
-#                 samples_to_trim = list(csv.DictReader(trim_csv))
-
-#         for pear_output_path in pear_output_paths:
-#             output_fastqs = os.listdir(f'{workflow.basedir}/{pear_output_path}')
-#             for fastq_file in output_fastqs:
-#                 # shell(f'fastqc {pear_output_path}/{fastq_file} --outdir {run_path}/fastqc_output')
-#                 if '.assembled' in fastq_file:
-#                     if params.cutadapt_trim == True:
-#                         sample_dir_name = fastq_file.split('.')[0]
-#                         sample_id = '_'.join(sample_dir_name.split('_')[:-1])
-                        
-#                         trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
-#                         f_amp_primer = trimmed_sample_data['f_amp_primer']
-#                         r_amp_primer = trimmed_sample_data['r_amp_primer']
-#                         f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
-#                         r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
-#                         target_length = trimmed_sample_data['target_length']
-#                         error = trimmed_sample_data['error']
-#                         trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
-            
-#                         shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{fastq_file}')
-                        
-#                         shell(f'fastqc {workflow.basedir}/{pear_output_path}/{trimmed_file_name} --outdir {workflow.basedir}/{run_path}/fastqc_output')
-#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{trimmed_file_name}')
-                    
-#                     else:
-#                         list_of_fastqs_for_vampseq.append(f'{pear_output_path}/{fastq_file}')
-                        
-#         print(f'{list_of_fastqs_for_vampseq}')
-                
-
 # ----- Run CountESS -----
-rule run_countess_vampseq:
-    input: f'{run_path}/demux.txt'
-    output: f'{run_path}/countess_inis/{run_timestamp}_{sample_filter}.ini'
-    run:
-        print('#----- RUNNING COUNTESS -----#')
-        shell(f'mkdir -p {run_path}/countess_inis')
+# rule run_countess_vampseq:
+#     input: f'user_input/{countess_sample_ini}'
+#     # output: f'{run_path}/final_scores.csv'
+#     run:
+#         print('#----- RUNNING COUNTESS -----#')
 
-        pear_output_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)
-
-        files_for_countess = []
-
-        for pear_output_path in pear_output_paths:
-            sample_name = pear_output_path.split('/')[-1]
-            if cutadapt_trim == True:
-                files_for_countess.append(f'{pear_output_path}/{sample_name}.assembled.trimmed.fastq')
-            else:
-                files_for_countess.append(f'{pear_output_path}/{sample_name}.assembled.fastq')
-                
-        print(f'count{files_for_countess}')
-    
         
-        default_vampseq_config = configparser.ConfigParser()
-        default_vampseq_config.read(countess_sample_ini)
+#         countess_ini = configparser.ConfigParser()
+#         countess_ini.read(f'{input}')
         
-        print(default_vampseq_config.sections())
-        print('hiii')
-    
+#         # if cutadapt_trim == True:
+#         #     countess_ini['FASTQLoad']['filenames'] = f"'pear_output/*/*/*.assembled.trimmed.fastq'"
+#         # else:
+#         #     countess_ini['FASTQLoad']['filenames'] = f"'pear_output/*/*/*.assembled.fastq'"
 
-        auto_countess_config = configparser.ConfigParser()
+#         countess_ini['LoadBarcodeMap']['files.0.filename'] = f"'../user_input/{barcode_variant_map}'"
+#         countess_ini['SaveTotalCounts']['filename'] = f"'unfiltered_counts.csv'"
+#         countess_ini['SaveCountBeforeFreq']['filename'] = f"'programmed_count.csv'"
+#         countess_ini['SaveTotalFreq']['filename'] = f"'programmed_freq.csv'"
+#         countess_ini['SaveScores']['filename'] = f"'final_scores.csv'"
+#         countess_ini['FilterLowCountVars']['filters.0.columns.0.value'] = f"'{count_cutoff}'"
 
-        for key in default_vampseq_config:
-            if key != 'DEFAULT':
-                print(key)
-                auto_countess_config[key] = {}
-                for sub_key in default_vampseq_config[key]:
-                    if key == 'FASTQ Load' and 'filename' in sub_key:
-                        for index in range(len(files_for_countess)):
-                            auto_countess_config['FASTQ Load'][f'files.{index}.filename'] = f"'../../{files_for_countess[index]}'"
-                    if key == 'Barcode Map Load' and 'filename' in sub_key:
-                        auto_countess_config['Barcode Map Load']['files.0.filename'] = f"'../../{barcode_variant_map}'"
-                    if key == 'Save Scores' and 'filename' in sub_key:
-                        auto_countess_config['Save Scores']['filename'] = f"'../{sample_filter}_countess_output.csv'"
-                    else:
-                        auto_countess_config[key][sub_key] = default_vampseq_config[key][sub_key]
-        print('ahhh')
-        print(auto_countess_config.sections())
-        with open(f'{output}', 'w') as countess_ini:
-            auto_countess_config.write(countess_ini)
+#         with open(f'{run_path}/{countess_sample_ini}', 'w') as modified_ini:    # save
+#             countess_ini.write(modified_ini)
+                    
+#         shell(f'countess_cmd {run_path}/{countess_sample_ini} --set FASTQLoad.files.0.filename=pear_output/*/*/*.assembled.fastq')
+
+# ----- Create Plots -----
+# rule create_plots:
+#     input: f'{run_path}/final_scores.csv'
+#     run:
+#         print('#----- Creating Plots -----#')
+#         unfiltered_counts = pd.read_csv(f'{run_path}/unfiltered_counts.csv')
+#         num_count_cols = unfiltered_counts.columns.tolist()[1:]
+#         total_counts = unfiltered_counts[num_count_cols].sum()
+#         unique_barcodes = unfiltered_counts[num_count_cols].astype(bool).sum(axis = 0)
+#         shell(f'mkdir -p {run_path}/read_hists')
+
+#         def plot_histogram(count_series, sample):
+#             # plt.figure(figsize=(8, 6))
+#             plt.hist(count_series, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
+#             plt.xscale('log')
+#             plt.yscale('log')
+#             plt.title(f'Read Count Histogram - {sample}')
+#             plt.xlabel('Read Counts (Log Scale)')
+#             plt.ylabel('Frequency (Log Scale)')
+#             plt.grid(True)
+#             plt.savefig(f'{run_path}/read_hists/{sample}.jpeg')
             
-        shell(f'countess_cmd {output}')
+#         for col in num_count_cols:
+#             plot_histogram(unfiltered_counts[col], col)
+
+#         vampseq_output = pd.read_csv(f'{input}')
+#         fig, axs = plt.subplots(1, 3)
+#         rep = 1
+#         for ax in axs:
+#             ax.hist(vampseq_output[vampseq_output['set'] == 'Missense'][f'score_rep_{rep}'], bins = 30, color = 'lightgrey', histtype = 'bar', label = 'Missense', edgecolor = 'black')
+#             ax.hist(vampseq_output[vampseq_output['set'] == 'Synonymous'][f'score_rep_{rep}'], bins = 30, color = 'blue', histtype = 'bar', label = 'Synonymous', edgecolor = 'black', alpha = 0.7)
+#             ax.hist(vampseq_output[vampseq_output['set'] == 'Nonsense'][f'score_rep_{rep}'], bins = 30, color = 'red', histtype = 'bar', label = 'Nonsense', edgecolor = 'black', alpha = 0.5)
+#             ax.legend()
+#             ax.set_xlabel('VAMPseq scores')
+#             ax.set_ylabel('# of Variants')
+#             fig.set_figwidth(20)
+#             rep += 1
+#         fig.savefig(f'{run_path}/hist.jpeg')
+
+                       
+#         counts_and_freq = pd.read_csv(f'{run_path}/programmed_freq.csv')
+#         for i in range(1, 4):
+#             counts_and_freq[f'sum_rep_{i}'] = counts_and_freq[f'count__bin_1__rep_{i}'] + counts_and_freq[f'count__bin_2__rep_{i}'] + counts_and_freq[f'count__bin_3__rep_{i}'] + counts_and_freq[f'count__bin_4__rep_{i}']
+            
+#         rep_counts = counts_and_freq[['aaChanges'] + list(counts_and_freq.columns[-3:])]
+#         joined = vampseq_output.set_index('aaChanges').join(rep_counts.set_index('aaChanges'))
+
+#         fig, axs = plt.subplots(1, 3)
+#         rep = 1
+#         for ax in axs:
+#             x = joined[f'sum_rep_{rep}']
+#             y = joined[f'score_rep_{rep}']
+#             ax.scatter(x, y, s = 5, alpha = 0.5, edgecolor = 'black', linewidth = 0.15)
+#             ax.set_xscale('log')
+#             ax.set_xlabel('Count (Log Scale)')
+#             ax.set_ylabel('VAMPseq score')
+#             fig.set_figwidth(20)
+#             rep += 1
+#         fig.savefig(f'{run_path}/count_score.jpeg')
+
+        
+#         columns_of_interest = ['score_rep_1', 'score_rep_2', 'score_rep_3']  # Replace with actual column names
+#         # Select these columns
+#         df_selected = vampseq_output[columns_of_interest]
+#         # Create a PairGrid object and map scatter plots to the upper triangle
+#         g = sns.PairGrid(df_selected)
+#         g = g.map_lower(sns.scatterplot)
+#         # Map histograms or density plots to the diagonal
+#         g = g.map_diag(sns.histplot, kde=True)
+#         # Compute the correlation matrix
+#         correlation_matrix = df_selected.corr()
+#         # Display the correlation matrix
+#         # Adjust the plot
+#         plt.subplots_adjust(top=0.95)
+#         plt.savefig(f'{run_path}/corr_matrix.jpeg', dpi=50)

@@ -1,15 +1,20 @@
-base_sample_sheet:
-countess_sample_ini:
-barcode_variant_map:
-steps:
-fastq_directory:
-sample_filter:
+run_name: TSC2_L1
+base_sample_sheet: TSC2L1_samplesheet.csv
+countess_sample_ini: tsc2_vampseq.ini
+barcode_variant_map: pacbio_output_TSC2lib1.csv.gz
+input_data_path: /net/fowler/vol1/home/spencej/240827_VH00123_477_AACL7HVHV
+run_type: demux
+sample_filter: TSC2_L1
+count_cutoff: 75
+# ------------------------------------------------------- #
+#   Below this is optional or in specific circumstances   #
+# ------------------------------------------------------- #
+bcl2fastq_arguments: --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0 
 samplesheet_params:
   i7_index_id_column_name: I7_Index_ID
-  i7_index_sequence_column_name: index # index
+  i7_index_sequence_column_name: I7_Index_seq # index
   i5_index_id_column_name: I5_Index_ID
-  i5_index_sequence_column_name: index2 # index2
-bcl2fastq_arguments: --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0 
+  i5_index_sequence_column_name: I5_Index_seq # index2
 cutadapt_trim_boolean: False
 cutadapt_params: # Optional
   error:
@@ -18,3 +23,7 @@ cutadapt_params: # Optional
   f_amp_primer_column_name:
   r_amp_primer_column_name:
   target_length_column_name:
+modules:
+  bcl2fastq: bcl2fastq/2.20
+  pear: pear/0.9.1
+  fastqc: fastqc/0.12.1

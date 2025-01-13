@@ -4,27 +4,29 @@
 
 #### Pre-Configuration:
 - conda (https://conda.io/projects/conda/en/latest/user-guide/install/index.html)
-- bcl2fastq/2.20 (in cluster modules, technically bcl2fastq2)
+- bcl2fastq/2.20 (in cluster modules)
 - pear/0.9.11 (in cluster modules)
 - fastqc/0.12.1 (in cluster modules)
 
 #### Python Dependencies (will be installed during Setup)
-- Python 3.10
-- CutAdapt 4.9
-- Snakemake 7.32.4
-- CountESS (via pip)
+- Python 3.11
+- CutAdapt 5
+
+via pip:
+- - Snakemake 8+
+- - CountESS 0.0.83
+  - 
   
 #### Setup
-- Clone PIPEseq into your directory
-- In your terminal, navigate to the PIPEseq directory, `cd <directory_with_sequence_data>/PIPEseq`
-- Create a Conda environment with yaml file `conda env create -f conda_env.yaml -n <env_name>`
-- Activate the Conda environment `conda activate <env_name>`
-- Copy your Samplesheet for bcl2fastq and barcode-variant map for VAMP-seq into the user_input folder
+- Clone PIPEseq to your machine
+- Create a Conda environment with yaml file `conda env create -f PIPEseq/conda_env.yaml`, its default name is pipeseq_env
+- Activate the Conda environment `conda activate pipeseq_env`
+- Copy your Samplesheet for bcl2fastq and barcode-variant map for into the user_input folder
 - Create an ini file from CountESS GUI if necessary
 - Fill out at least base_sample_sheet, countess_sample_ini, and samplesheet_params in user_variables.yaml file, see User Variables section below
 - Run pipeline with `bash run.sh`
-- Pipeline will produce a run directory with the name run-`Sample Filter`-`Timestamp in YYYYMMDDHHMM`-`Parent Folder Name` (ex. run-TSC2_L1-202409041630-240827_VH00123_477_AACL7HVHV)
-- Will produce a bcl2fastq_output folder containing unpaired fastqs, a pear_output folder containing paired fastqs, and a countess_inis folder countaining the ini file that was generated from the template, with the correct input and output file names, the samplesheet reformatted for bcl2fastq, and the CountESS output file with the name `Sample Filter`_countess_output.csv (ex. TSC2_L1_countess_output.csv), along with an empty text file called demux.txt for Snakemake
+- Pipeline will produce a run directory with either a chosen name or a timestamp  (ex. TSC2L1 or 202409041630)
+- Will produce a bcl2fastq_output folder containing unpaired fastqs, a pear_output folder containing paired fastqs, and a countess_inis folder countaining the ini file that was generated from the template, with the correct input and output file names, the samplesheet reformatted for bcl2fastq, and three CSV files from CountESS, along with an empty text file called demux.txt for Snakemake
 
 #### The Pipeline
 - Rules:
@@ -32,15 +34,19 @@
     - demux_and_pair - runs bcl2fastq to convert cbcl files to unpaired .fastq.gz files, and pear to convert to paired .fastq files for demuxing and pairing reads
       - The bcl2fastq command in line 148 may need to be modified to include some arguments (ex. --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0)
     - prep_fastqs_for_countess - trims fastqs (if necessary) and runs FastQC on all FASTQ files
-    - run_countess_vampseq = creates and executes a CountESS ini file from the assembled .fastq files produced
+    - run_countess_vampseq = Creates counts and scores from assembled FASTQ files
 
 #### User Variables
 - The user_variables.yaml file can be modified with the following parameters, examples in example_yamls/:
+run_name - Name of directory where all run output will be stored, else the timestamp will be used
+
 **base_sample_sheet** - Name of Samplesheet CSV file
 **countess_sample_ini** - Name of ini file for CountESS (TECHNICALLY not needed if only running step 1)
-steps (OPTIONAL) - 1 (Only demux and pairing, creates FASTQs), 2 (Only CountESS, from existing FASTQs), leave blank for full pipeline **!!!THIS IS NOT READY YET!!!**
-fastq_directory (OPTIONAL) - Location of FASTQs, if only running CountESS step **!!!THIS IS NOT READY YET!!!**
-sample_filter (OPTIONAL) - If want to only run on certain samples (ex. F8)
+**barcode_variant_map** - Pacbio variant map
+input_data_path - Path to either sequence directory or directory of FASTQ files
+run_type - run only demux and pair, only counting and scoring, or full
+sample_filter - Only run a subset of data from samplesheet, if desired
+**count_cutoff** - Cutoff usd for scoring
 **samplesheet_params** - The names of samplesheet columns if different from Illumina defaults
 - **i7_index_id_column_name**
 - **i7_index_sequence_column_name** - index
@@ -57,18 +63,17 @@ cutadapt_params (OPTIONAL, including all below) - For use if trimming with CutAd
 **bold** = needs to be filled in by user
 
 #### Expected Folder Structure
-- *<directory_with_raw_data>/
-    - PIPEseq/
-        - example_yamls/
-        - **run-.../
-        - user_input/
-            - *<samplesheet_file>.csv
-            - *<countess_file>.ini
-        - conda_env.yaml
-        - README.md
-        - run.sh
-        - Snakefile
-        - &user_variables.yaml
+- PIPEseq/
+    - example_yamls/
+    - **<run_name>
+    - user_input/
+        - *<samplesheet_file>.csv
+        - *<countess_file>.ini
+    - conda_env.yaml
+    - README.md
+    - run.sh
+    - Snakefile
+    - &user_variables.yaml
 
 *=user file (or folder)
 **=autogenerated
