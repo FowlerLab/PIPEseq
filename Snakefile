@@ -32,7 +32,7 @@ memory = config['memory']
 if config['run_type'] == 'demux':
     step_output = [f'{run_path}/demux.txt', f'{run_path}/prep_fastqs.txt']
 else:
-    step_output = f'{run_path}/final_scores.csv'
+    step_output = [f'{run_path}/countess.txt', f'{run_path}/metrics/correlation_matrix.jpeg']
 
 
 rule all:
@@ -128,8 +128,6 @@ rule demux_and_pair:
 
         bcl2fastq -R "{params.input_data_dir}" -o ./bcl2fastq_output/ --sample-sheet "$samplesheet" --no-lane-splitting -p {params.processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
 
-        touch {output}
-
         mkdir -p ./pear_output/
 
         ls -d ./bcl2fastq_output/*/ | tr '\\n' '\\0' | xargs -0 -n 1 basename | grep -v -E 'Reports|Stats' | while read FOLDER; do
@@ -139,13 +137,13 @@ rule demux_and_pair:
             ls -1 ./bcl2fastq_output/${{FOLDER}}/*_R1_001.fastq.gz | tr '\\n' '\\0' | xargs -0 -n 1 basename | sed 's/_R1_001.fastq.gz//' | while read SAMPLE; do
                 echo "$SAMPLE"
                 mkdir ./pear_output/${{FOLDER}}/${{SAMPLE}}
-                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.processing_threads} -n 10
+                pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.processing_threads} -n 10 
         
             done
         
         done
         
-        touch peared.txt
+        (echo "Complete") > {output}
         """
                               
 
@@ -236,109 +234,106 @@ rule prep_fastqs_for_countess:
             fastqc $FASTQ_PATH/*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)
             
         done
-        touch {output}
+        (echo "Complete") > {output}
         """
 
 # ----- Run CountESS -----
-# rule run_countess_vampseq:
-#     input: f'user_input/{countess_sample_ini}'
-#     # output: f'{run_path}/final_scores.csv'
-#     run:
-#         print('#----- RUNNING COUNTESS -----#')
+rule run_countess_vampseq:
+    input: f'user_input/{countess_sample_ini}'
+    output: f'{run_path}/countess.txt'
+    run:
+        print('#----- RUNNING COUNTESS -----#')
+        
+        # countess_ini = configparser.ConfigParser()
+        # countess_ini.read(f'{input}')
+
+        # countess_ini['LoadBarcodeMap']['files.0.filename'] = f"'{barcode_variant_map}'"
+        # countess_ini['SaveTotalCounts']['filename'] = f"'../{run_path}/unfiltered_counts.csv'"
+        # countess_ini['SaveCountBeforeFreq']['filename'] = f"'../{run_path}/programmed_count.csv'"
+        # countess_ini['SaveTotalFreq']['filename'] = f"'../{run_path}/programmed_freq.csv'"
+        # countess_ini['SaveScores']['filename'] = f"'../{run_path}/final_scores.csv'"
+        # countess_ini['FilterLowCountVars']['filters.0.columns.0.value'] = f"'{count_cutoff}'"
 
         
-#         countess_ini = configparser.ConfigParser()
-#         countess_ini.read(f'{input}')
-        
-#         # if cutadapt_trim == True:
-#         #     countess_ini['FASTQLoad']['filenames'] = f"'pear_output/*/*/*.assembled.trimmed.fastq'"
-#         # else:
-#         #     countess_ini['FASTQLoad']['filenames'] = f"'pear_output/*/*/*.assembled.fastq'"
-
-#         countess_ini['LoadBarcodeMap']['files.0.filename'] = f"'../user_input/{barcode_variant_map}'"
-#         countess_ini['SaveTotalCounts']['filename'] = f"'unfiltered_counts.csv'"
-#         countess_ini['SaveCountBeforeFreq']['filename'] = f"'programmed_count.csv'"
-#         countess_ini['SaveTotalFreq']['filename'] = f"'programmed_freq.csv'"
-#         countess_ini['SaveScores']['filename'] = f"'final_scores.csv'"
-#         countess_ini['FilterLowCountVars']['filters.0.columns.0.value'] = f"'{count_cutoff}'"
-
-#         with open(f'{run_path}/{countess_sample_ini}', 'w') as modified_ini:    # save
-#             countess_ini.write(modified_ini)
+        # with open(f'{input}', 'w') as modified_ini:    # save
+        #     countess_ini.write(modified_ini)
                     
-#         shell(f'countess_cmd {run_path}/{countess_sample_ini} --set FASTQLoad.files.0.filename=pear_output/*/*/*.assembled.fastq')
+        shell(f'countess_cmd {input} && (echo "Complete") > {output}')
 
 # ----- Create Plots -----
-# rule create_plots:
-#     input: f'{run_path}/final_scores.csv'
-#     run:
-#         print('#----- Creating Plots -----#')
-#         unfiltered_counts = pd.read_csv(f'{run_path}/unfiltered_counts.csv')
-#         num_count_cols = unfiltered_counts.columns.tolist()[1:]
-#         total_counts = unfiltered_counts[num_count_cols].sum()
-#         unique_barcodes = unfiltered_counts[num_count_cols].astype(bool).sum(axis = 0)
-#         shell(f'mkdir -p {run_path}/read_hists')
+rule create_plots:
+    input: f'{run_path}/countess.txt'
+    output: f'{run_path}/metrics/correlation_matrix.jpeg'
+    run:
+        print('#----- Creating Plots -----#')
+        shell(f'mkdir -p {run_path}/metrics')
+        unfiltered_counts = pd.read_csv(f'{run_path}/unfiltered_counts.csv')
+        num_count_cols = unfiltered_counts.columns.tolist()[1:]
+        total_counts = unfiltered_counts[num_count_cols].sum()
+        unique_barcodes = unfiltered_counts[num_count_cols].astype(bool).sum(axis = 0)
+        shell(f'mkdir -p {run_path}/metrics/read_hists')
 
-#         def plot_histogram(count_series, sample):
-#             # plt.figure(figsize=(8, 6))
-#             plt.hist(count_series, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
-#             plt.xscale('log')
-#             plt.yscale('log')
-#             plt.title(f'Read Count Histogram - {sample}')
-#             plt.xlabel('Read Counts (Log Scale)')
-#             plt.ylabel('Frequency (Log Scale)')
-#             plt.grid(True)
-#             plt.savefig(f'{run_path}/read_hists/{sample}.jpeg')
+        def plot_histogram(count_series, sample):
+            # plt.figure(figsize=(8, 6))
+            plt.hist(count_series, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
+            plt.xscale('log')
+            plt.yscale('log')
+            plt.title(f'Read Count Histogram - {sample}')
+            plt.xlabel('Read Counts (Log Scale)')
+            plt.ylabel('Frequency (Log Scale)')
+            plt.grid(True)
+            plt.savefig(f'{run_path}/metrics/read_hists/{sample}.jpeg')
             
-#         for col in num_count_cols:
-#             plot_histogram(unfiltered_counts[col], col)
+        for col in num_count_cols:
+            plot_histogram(unfiltered_counts[col], col)
 
-#         vampseq_output = pd.read_csv(f'{input}')
-#         fig, axs = plt.subplots(1, 3)
-#         rep = 1
-#         for ax in axs:
-#             ax.hist(vampseq_output[vampseq_output['set'] == 'Missense'][f'score_rep_{rep}'], bins = 30, color = 'lightgrey', histtype = 'bar', label = 'Missense', edgecolor = 'black')
-#             ax.hist(vampseq_output[vampseq_output['set'] == 'Synonymous'][f'score_rep_{rep}'], bins = 30, color = 'blue', histtype = 'bar', label = 'Synonymous', edgecolor = 'black', alpha = 0.7)
-#             ax.hist(vampseq_output[vampseq_output['set'] == 'Nonsense'][f'score_rep_{rep}'], bins = 30, color = 'red', histtype = 'bar', label = 'Nonsense', edgecolor = 'black', alpha = 0.5)
-#             ax.legend()
-#             ax.set_xlabel('VAMPseq scores')
-#             ax.set_ylabel('# of Variants')
-#             fig.set_figwidth(20)
-#             rep += 1
-#         fig.savefig(f'{run_path}/hist.jpeg')
+        vampseq_output = pd.read_csv(f'../{run_path}/final_scores.csv')
+        fig, axs = plt.subplots(1, 3)
+        rep = 1
+        for ax in axs:
+            ax.hist(vampseq_output[vampseq_output['set'] == 'Missense'][f'score_rep_{rep}'], bins = 30, color = 'lightgrey', histtype = 'bar', label = 'Missense', edgecolor = 'black')
+            ax.hist(vampseq_output[vampseq_output['set'] == 'Synonymous'][f'score_rep_{rep}'], bins = 30, color = 'blue', histtype = 'bar', label = 'Synonymous', edgecolor = 'black', alpha = 0.7)
+            ax.hist(vampseq_output[vampseq_output['set'] == 'Nonsense'][f'score_rep_{rep}'], bins = 30, color = 'red', histtype = 'bar', label = 'Nonsense', edgecolor = 'black', alpha = 0.5)
+            ax.legend()
+            ax.set_xlabel('VAMPseq scores')
+            ax.set_ylabel('# of Variants')
+            fig.set_figwidth(20)
+            rep += 1
+        fig.savefig(f'{run_path}/metrics/stacked_score_count_hist.jpeg')
 
                        
-#         counts_and_freq = pd.read_csv(f'{run_path}/programmed_freq.csv')
-#         for i in range(1, 4):
-#             counts_and_freq[f'sum_rep_{i}'] = counts_and_freq[f'count__bin_1__rep_{i}'] + counts_and_freq[f'count__bin_2__rep_{i}'] + counts_and_freq[f'count__bin_3__rep_{i}'] + counts_and_freq[f'count__bin_4__rep_{i}']
+        counts_and_freq = pd.read_csv(f'{run_path}/programmed_freq.csv')
+        for i in range(1, 4):
+            counts_and_freq[f'sum_rep_{i}'] = counts_and_freq[f'count__bin_1__rep_{i}'] + counts_and_freq[f'count__bin_2__rep_{i}'] + counts_and_freq[f'count__bin_3__rep_{i}'] + counts_and_freq[f'count__bin_4__rep_{i}']
             
-#         rep_counts = counts_and_freq[['aaChanges'] + list(counts_and_freq.columns[-3:])]
-#         joined = vampseq_output.set_index('aaChanges').join(rep_counts.set_index('aaChanges'))
+        rep_counts = counts_and_freq[['aaChanges'] + list(counts_and_freq.columns[-3:])]
+        joined = vampseq_output.set_index('aaChanges').join(rep_counts.set_index('aaChanges'))
 
-#         fig, axs = plt.subplots(1, 3)
-#         rep = 1
-#         for ax in axs:
-#             x = joined[f'sum_rep_{rep}']
-#             y = joined[f'score_rep_{rep}']
-#             ax.scatter(x, y, s = 5, alpha = 0.5, edgecolor = 'black', linewidth = 0.15)
-#             ax.set_xscale('log')
-#             ax.set_xlabel('Count (Log Scale)')
-#             ax.set_ylabel('VAMPseq score')
-#             fig.set_figwidth(20)
-#             rep += 1
-#         fig.savefig(f'{run_path}/count_score.jpeg')
+        fig, axs = plt.subplots(1, 3)
+        rep = 1
+        for ax in axs:
+            x = joined[f'sum_rep_{rep}']
+            y = joined[f'score_rep_{rep}']
+            ax.scatter(x, y, s = 5, alpha = 0.5, edgecolor = 'black', linewidth = 0.15)
+            ax.set_xscale('log')
+            ax.set_xlabel('Count (Log Scale)')
+            ax.set_ylabel('VAMPseq score')
+            fig.set_figwidth(20)
+            rep += 1
+        fig.savefig(f'{run_path}/metrics/score_total_count_scatter.jpeg')
 
         
-#         columns_of_interest = ['score_rep_1', 'score_rep_2', 'score_rep_3']  # Replace with actual column names
-#         # Select these columns
-#         df_selected = vampseq_output[columns_of_interest]
-#         # Create a PairGrid object and map scatter plots to the upper triangle
-#         g = sns.PairGrid(df_selected)
-#         g = g.map_lower(sns.scatterplot)
-#         # Map histograms or density plots to the diagonal
-#         g = g.map_diag(sns.histplot, kde=True)
-#         # Compute the correlation matrix
-#         correlation_matrix = df_selected.corr()
-#         # Display the correlation matrix
-#         # Adjust the plot
-#         plt.subplots_adjust(top=0.95)
-#         plt.savefig(f'{run_path}/corr_matrix.jpeg', dpi=50)
+        columns_of_interest = ['score_rep_1', 'score_rep_2', 'score_rep_3']  # Replace with actual column names
+        # Select these columns
+        df_selected = vampseq_output[columns_of_interest]
+        # Create a PairGrid object and map scatter plots to the upper triangle
+        g = sns.PairGrid(df_selected)
+        g = g.map_lower(sns.scatterplot)
+        # Map histograms or density plots to the diagonal
+        g = g.map_diag(sns.histplot, kde=True)
+        # Compute the correlation matrix
+        correlation_matrix = df_selected.corr()
+        # Display the correlation matrix
+        # Adjust the plot
+        plt.subplots_adjust(top=0.95)
+        plt.savefig(f'{output}')

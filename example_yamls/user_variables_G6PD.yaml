@@ -1,10 +1,10 @@
-run_name: TSC2_L2
+run_name: G6PD
 base_sample_sheet: samplesheet.csv
 countess_sample_ini: tsc2_vampseq.ini
-barcode_variant_map: TSC2_lib2_map_revised.csv
-input_data_path: /net/fowler/vol1/home/spencej/PIPEseq/TSC2_L2
-run_type: score # demux, score, or leave empty
-sample_filter: TSC2_L2
+barcode_variant_map: pacbio_output_G6PD_cleaned.csv.gz
+input_data_path: /net/fowler/vol1/home/spencej/PIPEseq/G6PD
+run_type: # demux, or leave empty
+sample_filter: G6PD
 count_cutoff: 75
 # ------------------------------------------------------- #
 #   Below this is optional or in specific circumstances   #

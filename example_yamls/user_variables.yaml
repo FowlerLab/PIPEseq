@@ -1,11 +1,11 @@
-run_name: TSC2_L1
-base_sample_sheet: TSC2L1_samplesheet.csv
-countess_sample_ini: 1217_vampseq.ini
-barcode_variant_map: pacbio_output_TSC2lib1.csv.gz
-input_data_path: /net/fowler/vol1/home/spencej/240827_VH00123_477_AACL7HVHV
-run_type: demux
-sample_filter: TSC2_L1
-count_cutoff: 75
+run_name: 
+base_sample_sheet: 
+countess_sample_ini: 
+barcode_variant_map: 
+input_data_path: 
+run_type: 
+sample_filter: 
+count_cutoff: 
 # ------------------------------------------------------- #
 #   Below this is optional or in specific circumstances   #
 # ------------------------------------------------------- #
