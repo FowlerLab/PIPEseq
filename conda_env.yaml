@@ -5,7 +5,7 @@ dependencies:
   - snakemake==8.27.1
   - snakemake-executor-plugin-cluster-generic
   - cutadapt==5
-  - countess==0.0.83
+  - countess==0.0.84
   - jupyterlab
   - pandas
   - matplotlib

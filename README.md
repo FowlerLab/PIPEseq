@@ -21,7 +21,7 @@ via pip:
 - Clone PIPEseq to your machine
 - Create a Conda environment with yaml file `conda env create -f PIPEseq/conda_env.yaml`, its default name is pipeseq_env
 - Activate the Conda environment `conda activate pipeseq_env`
-- Copy your Samplesheet for bcl2fastq and barcode-variant map for into the user_input folder
+- Copy your Samplesheet for bcl2fastq and barcode-variant map into the user_input folder
 - Create an ini file from CountESS GUI if necessary
 - Fill out at least base_sample_sheet, countess_sample_ini, and samplesheet_params in user_variables.yaml file, see User Variables section below
 - Run pipeline with `bash run.sh`
