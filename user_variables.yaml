@@ -3,7 +3,7 @@ base_sample_sheet: samplesheet.csv
 countess_sample_ini: tsc2_vampseq.ini
 barcode_variant_map: TSC2_lib2_map_revised.csv
 input_data_path: /net/fowler/vol1/shared/pipeseq_demo/240827_VH00123_477_AACL7HVHV
-run_type: 
+run_type: demux
 sample_filter: TSC2_L2
 count_cutoff: 75
 # ------------------------------------------------------- #
@@ -12,9 +12,9 @@ count_cutoff: 75
 bcl2fastq_arguments: --barcode-mismatches 0 --minimum-trimmed-read-length 0 --mask-short-adapter-reads 0 
 samplesheet_params:
   i7_index_id_column_name: I7_Index_ID
-  i7_index_sequence_column_name: I7_Index_seq # index
+  i7_index_sequence_column_name: index # index
   i5_index_id_column_name: I5_Index_ID
-  i5_index_sequence_column_name: I5_Index_seq # index2
+  i5_index_sequence_column_name: index2 # index2
 cutadapt_trim_boolean: False
 cutadapt_params: # Optional
   error:
@@ -25,5 +25,5 @@ cutadapt_params: # Optional
   target_length_column_name:
 modules:
   bcl2fastq: bcl2fastq/2.20
-  pear: pear/0.9.1
+  pear: pear/0.9.11
   fastqc: fastqc/0.12.1

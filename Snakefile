@@ -109,14 +109,14 @@ rule demux_and_pair:
     params:
         input_data_dir = raw_data_directory,
         run_path = run_path,
-        bcl2fastq_arguments = config['bcl2fastq_arguments'],
-        processing_threads = threads - 4,
-        bcl2fastq_loading_threads = 2,
-        bcl2fastq_writing_threads = 2
+        processing_threads = config['threads'],
+        bcl2fastq_module = modules['bcl2fastq'],
+        pear_module = modules['pear'],
+        bcl2fastq_arguments = config['bcl2fastq_arguments']
     shell:
         """
-        module load bcl2fastq/2.20
-        module load pear/0.9.11
+        module load {params.bcl2fastq_module}
+        module load {params.pear_module}
 
         pwd={workflow.basedir}
         samplesheet=$pwd/{input}
@@ -126,7 +126,7 @@ rule demux_and_pair:
         mkdir -p ./bcl2fastq_output/
         echo {params.input_data_dir}
 
-        bcl2fastq -R "{params.input_data_dir}" -o ./bcl2fastq_output/ --sample-sheet "$samplesheet" --no-lane-splitting -p {params.processing_threads} -r {params.bcl2fastq_loading_threads} -w {params.bcl2fastq_writing_threads} {params.bcl2fastq_arguments}
+        bcl2fastq -R "{params.input_data_dir}" -o ./bcl2fastq_output/ --sample-sheet "$samplesheet" --no-lane-splitting {params.bcl2fastq_arguments}
 
         mkdir -p ./pear_output/
 
