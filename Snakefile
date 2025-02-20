@@ -12,9 +12,9 @@ modules = config['modules']
 
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
-countess_sample_ini = config["countess_sample_ini"]
+count_ini = config["count_ini"]
 barcode_variant_map = config["barcode_variant_map"]
-count_cutoff = config["count_cutoff"]
+default_cutoff = config["default_cutoff"]
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
 
@@ -30,9 +30,11 @@ memory = config['memory']
 # -----------------
 
 if config['run_type'] == 'demux':
-    step_output = [f'{run_path}/demux.txt', f'{run_path}/prep_fastqs.txt']
+    step_output = f'{run_path}/demux.txt'
+elif config['run_type'] == 'count':
+    step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/cutoffs.csv']
 else:
-    step_output = [f'{run_path}/countess.txt', f'{run_path}/metrics/correlation_matrix.jpeg']
+    step_output = f'{run_path}/metrics/correlation_matrix.jpeg'
 
 
 rule all:
@@ -117,10 +119,9 @@ rule demux_and_pair:
         """
         module load {params.bcl2fastq_module}
         module load {params.pear_module}
-
         pwd={workflow.basedir}
         samplesheet=$pwd/{input}
-
+        (echo "Complete") > {output}
         cd $pwd/{params.run_path}
         
         mkdir -p ./bcl2fastq_output/
@@ -140,10 +141,7 @@ rule demux_and_pair:
                 pear -f ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R1_001.fastq.gz -r ./bcl2fastq_output/${{FOLDER}}/${{SAMPLE}}_R2_001.fastq.gz -o ./pear_output/${{FOLDER}}/${{SAMPLE}}/${{SAMPLE}} -q 30 -j {params.processing_threads} -n 10 
         
             done
-        
         done
-        
-        (echo "Complete") > {output}
         """
                               
 
@@ -207,7 +205,8 @@ def get_fastq_file_paths(samplesheet, run_path):
         return list_of_sample_paths 
     except:
         return []
-                       
+
+
 # ----- Run CutAdapt and FastQC -----
 rule prep_fastqs_for_countess:
     input: f'{run_path}/demux.txt'
@@ -215,7 +214,7 @@ rule prep_fastqs_for_countess:
     params:
         run_path = run_path,
         fastq_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path),
-        fastqc_module = modules['fastqc'],
+        fastqc_module = modules['fastqc']
     shell:
         """
         FASTQC_OUTPUT_PATH="{params.run_path}/fastqc_output"
@@ -225,40 +224,62 @@ rule prep_fastqs_for_countess:
 
         for FASTQ_PATH in {params.fastq_paths}; do
             FOLDER=$(basename $(dirname $FASTQ_PATH))
-            FASTQC_THREADS=$(find $FASTQ_PATH/. -name '*.fastq' | wc -l)
-            
+            FASTQC_THREADS=$(find {params.run_path}/pear_output/$FASTQ_PATH* -name '*.fastq' | wc -l)
+            echo "$FASTQC_OUTPUT_PATH/$FOLDER"
             mkdir -p $FASTQC_OUTPUT_PATH/$FOLDER
-            mkdir -p $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)
 
-            echo "fastqc $FASTQ_PATH/*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)"
-            fastqc $FASTQ_PATH/*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)
+            echo "fastqc {params.run_path}/pear_output/$FASTQ_PATH*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$FOLDER/$(basename $FASTQ_PATH)"
+            fastqc {params.run_path}/pear_output/$FASTQ_PATH*.fastq -t $FASTQC_THREADS --outdir $FASTQC_OUTPUT_PATH/$(basename $FASTQ_PATH)
             
         done
         (echo "Complete") > {output}
         """
 
-# ----- Run CountESS -----
 rule run_countess_vampseq:
-    input: f'user_input/{countess_sample_ini}'
-    output: f'{run_path}/countess.txt'
-    run:
-        print('#----- RUNNING COUNTESS -----#')
+    input: expand(f'{run_path}/pear_output/{{fastq}}.assembled.fastq', fastq = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)[:2])
+    output: f'{run_path}/cutoffs.csv'
+    params:
+        run_path = run_path,
+        count_ini = f'default_files/{count_ini}'
+    shell:
+        """
+        mkdir -p {params.run_path}/counts
         
-        # countess_ini = configparser.ConfigParser()
-        # countess_ini.read(f'{input}')
-
-        # countess_ini['LoadBarcodeMap']['files.0.filename'] = f"'{barcode_variant_map}'"
-        # countess_ini['SaveTotalCounts']['filename'] = f"'../{run_path}/unfiltered_counts.csv'"
-        # countess_ini['SaveCountBeforeFreq']['filename'] = f"'../{run_path}/programmed_count.csv'"
-        # countess_ini['SaveTotalFreq']['filename'] = f"'../{run_path}/programmed_freq.csv'"
-        # countess_ini['SaveScores']['filename'] = f"'../{run_path}/final_scores.csv'"
-        # countess_ini['FilterLowCountVars']['filters.0.columns.0.value'] = f"'{count_cutoff}'"
-
+        for FASTQ_PATH in {input}; do
+            FILENAME=$(basename $FASTQ_PATH)
+            echo "$FILENAME"
+            echo countess_cmd --set 'LoadFASTQ.files.0.filename="$FASTQ_PATH"' --set 'SaveRawCounts.filename="{params.run_path}/counts/$FILENAME.csv"' {params.count_ini}
+        done
         
-        # with open(f'{input}', 'w') as modified_ini:    # save
-        #     countess_ini.write(modified_ini)
-                    
-        shell(f'countess_cmd {input} && (echo "Complete") > {output}')
+        (echo "Complete") > {output}
+        """
+                       
+# ----- Run CountESS -----
+# rule run_countess_vampseq:
+#     input: f'{run_path}/demux.txt'
+#     output: f'{run_path}/cutoffs.csv'
+#     params:
+#         fastq_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)
+#     run:
+#         print('#----- RUNNING COUNTESS -----#')
+#         default_cutoff = []
+#         shell(f'mkdir {run_path}/counts')
+        
+        
+#         for fastq in params.fastq_paths[:1]:
+#             filename = fastq.split('/')[-1].split('.')[0]
+#             # shell(f'echo countess_cmd --set \'LoadFASTQ.files.0.filename=\"{run_path}/pear_output/{fastq}.assembled.fastq\"\' --set \'SaveRawCounts.filename=\"{run_path}/counts/{filename}.csv\"\' default_files/raw_count.ini')
+#             shell(f'countess_cmd --set \'LoadFASTQ.files.0.filename="{run_path}/pear_output/{fastq}.assembled.fastq"\' --set \'SaveRawCounts.filename="{run_path}/counts/{filename}.csv"\' default_files/raw_count.ini')
+                
+#             default_cutoff.append({
+#                 'filename': filename,
+#                 'cutoff': default_cutoff
+#             })
+                
+#         with open(f'{output}', 'w+', newline='', encoding='utf-8') as cutoff_csv:
+#             cutoff_file = csv.DictWriter(cutoff_csv, fieldnames = ['filename', 'cutoff'])
+#             for row in default_cutoff:
+#                 cutoff_file.writerow(row)
 
 # ----- Create Plots -----
 rule create_plots:
