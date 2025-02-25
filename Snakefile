@@ -14,7 +14,7 @@ modules = config['modules']
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
 barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
 count_ini = f'default_files/{config["count_ini"]}'
-score_ini = f'default_files/{config["score_ini"]}'
+score_ini = f'user_input/{config["score_ini"]}'
 default_cutoff = config["default_cutoff"]
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
@@ -34,7 +34,8 @@ if config['run_type'] == 'demux':
 elif config['run_type'] == 'count':
     step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/metrics/raw_count_hists.jpeg']
 else:
-    step_output = [f'{run_path}/countess_score.csv', f'{run_path}/metrics/correlation_matrix.jpeg']
+    step_output = [f'{run_path}/metrics/correlation_matrix.jpeg']
+    # step_output = [f'{run_path}/countess_score.csv', f'{run_path}/metrics/correlation_matrix.jpeg']
 
 
 rule all:
@@ -216,10 +217,10 @@ rule create_cutoff_hists:
     input: f'{run_path}/cutoffs.csv'
     output: f'{run_path}/metrics/raw_count_hists.jpeg'
     params: 
-        samples = [x.split('/')[-1] for x in get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)]
+        samples = [f'{run_path}/counts/{x.split('/')[-1]}.csv' for x in get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)]
     run:
         shell(f'mkdir -p {run_path}/metrics')
-        unfiltered_counts = pd.read_csv(f'{input}')
+        count_files = params.samples
 
         reps = int(len(count_files) / 4)
         fig, axes = plt.subplots(reps, 4, figsize=(25,15))
@@ -235,7 +236,6 @@ rule create_cutoff_hists:
             unfiltered_counts = pd.read_csv(f'{count_file}')
             total_count_obj[sample_id] = unfiltered_counts['count'].sum()
             unique_barcode_obj[sample_id] = len(unfiltered_counts)
-            
             
             ax = axes[y, x]
             ax.hist(unfiltered_counts, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
@@ -268,6 +268,7 @@ rule create_cutoff_hists:
         fig.tight_layout()
         fig.savefig(f'{run_path}/metrics/total_and_unique_reads.jpeg')
 
+           
 # ----- Run Scoring INI file -----
 rule run_countess_scoring:
     input: f'{run_path}/cutoffs.csv'
@@ -279,24 +280,25 @@ rule run_countess_scoring:
         barcode_variant_map = barcode_variant_map,
     shell:
         '''
-        echo countess_cmd --set LoadCutoff.files.0.filename='"'{input}"' --set LoadCutoff.files.0.filename='"'{input}"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}"' "'"--set LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
-        
-        countess_cmd --set LoadCutoff.files.0.filename='"'{input}"' \
-        --set LoadCutoff.files.0.filename='"'{input}"' \
-        --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}"' \
-        "'"--set LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv"'"'" \
-        --set SaveScores.filename='"'{output}'"' \
-        --log=debug {params.score_ini}
+        echo countess_cmd --set LoadCutoff.files.0.filename='"'{input}'"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}'"' --set "'"LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv'"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
+        countess_cmd --set LoadCutoff.files.0.filename='"'{input}'"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}'"' --set "'"LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv'"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
         '''
 
+           
 # ----- Create Plots -----
+# rule create_plots:
+#     input: f'{run_path}/countess_score.csv'
+#     output: f'{run_path}/metrics/correlation_matrix.jpeg'
+#     run:
+#         print('#----- Creating Plots -----#')
+
+#         countess_output = pd.read_csv(f'{input}')
 rule create_plots:
-    input: f'{run_path}/countess_score.csv'
     output: f'{run_path}/metrics/correlation_matrix.jpeg'
     run:
         print('#----- Creating Plots -----#')
 
-        countess_output = pd.read_csv(f'{input}')
+        countess_output = pd.read_csv(f'{run_path}/countess_score.csv')
         fig, axes = plt.subplots(1, 3, figsize=(15,5))
         
         # measurements = ['score__rep_1', 'score__rep_2', 'score__rep_3']
@@ -344,6 +346,7 @@ rule create_plots:
 
 
 # -------------------- CutAdapt/one-off code to clean --------------------
+                          
 # Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
 # def index_reverse_compliment_and_trim(barcode_string, trim_amount):
 #     reverse_compliment = {

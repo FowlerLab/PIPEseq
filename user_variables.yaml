@@ -4,7 +4,7 @@ count_ini: raw_count.ini
 score_ini: vampseq_default.ini
 barcode_variant_map: TSC2_lib2_map_revised.csv
 input_data_path: /net/fowler/vol1/shared/pipeseq_demo/240827_VH00123_477_AACL7HVHV
-run_type: count
+run_type: 
 sample_filter: TSC2_L2
 default_cutoff: 75
 # ------------------------------------------------------- #
