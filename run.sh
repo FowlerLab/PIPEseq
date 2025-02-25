@@ -8,8 +8,9 @@ MEMORY=64
     
 snakemake \
     --executor cluster-generic \
-    --cluster-generic-submit-cmd "qsub -l mfree=${MEMORY}G" \
+    --cluster-generic-submit-cmd "qsub -l mfree=${MEMORY}G -l h=fl003" \
     --cluster-generic-cancel-cmd "qdel" \
+    --software-deployment-method conda \
     --jobs 30 \
     --latency-wait 120 \
     --use-envmodules \

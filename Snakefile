@@ -12,29 +12,29 @@ modules = config['modules']
 
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
-count_ini = config["count_ini"]
-barcode_variant_map = config["barcode_variant_map"]
+barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
+count_ini = f'default_files/{config["count_ini"]}'
+score_ini = f'default_files/{config["score_ini"]}'
 default_cutoff = config["default_cutoff"]
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
-
 raw_data_directory = config['input_data_path']
-# ----- Optional CutAdapt Parameter -----
-cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 
 # ----- Run Configuration -----
 run_path = config['run_name'] if config['run_name'] else config['run_timestamp']
-
 threads = config['threads']
 memory = config['memory']
+
+# ----- Optional CutAdapt Parameter -----
+cutadapt_trim = bool(config['cutadapt_trim_boolean'])
 # -----------------
 
 if config['run_type'] == 'demux':
-    step_output = f'{run_path}/demux.txt'
+    step_output = f'{run_path}/prep_fastqs.txt'
 elif config['run_type'] == 'count':
-    step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/cutoffs.csv']
+    step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/metrics/raw_count_hists.jpeg']
 else:
-    step_output = f'{run_path}/metrics/correlation_matrix.jpeg'
+    step_output = [f'{run_path}/countess_score.csv', f'{run_path}/metrics/correlation_matrix.jpeg']
 
 
 rule all:
@@ -42,21 +42,8 @@ rule all:
     run:
         print('#----- Complete -----#')
 
-# Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
-# def index_reverse_compliment_and_trim(barcode_string, trim_amount):
-#     reverse_compliment = {
-#         'A': 'T',
-#         'T': 'A',
-#         'C': 'G',
-#         'G': 'C'
-#     }
-#     reverse_compliment_string = ''
-#     for letter in barcode_string:
-#         reverse_compliment_string = reverse_compliment[letter] + reverse_compliment_string
-    
-#     reverse_compliment_string[:trim_amount]
-#     return reverse_compliment_string[:-trim_amount]
-        
+
+# ----- Convert samplesheet to the one bcl2fastq expects
 rule clean_and_filter_samplesheet:
     input: base_sample_sheet
     output: f'{run_path}/{sample_filter}_samplesheet.csv'
@@ -105,9 +92,10 @@ rule clean_and_filter_samplesheet:
             csv.writer(cleaned_samplesheet).writerows(cleaned_samples)
 
 
+# -----  Demultiplex and Pair Illumina sequences -----
 rule demux_and_pair:
     input: f'{run_path}/{sample_filter}_samplesheet.csv'
-    output: f'{run_path}/demux.txt'
+    output: temp(f'{run_path}/demux.txt')
     params:
         input_data_dir = raw_data_directory,
         run_path = run_path,
@@ -143,44 +131,6 @@ rule demux_and_pair:
             done
         done
         """
-                              
-
-# rule trim_fastqs:
-#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
-#     run:
-#         if cutadapt_trim == True:
-#             print('#----- RUNNING CUTADAPT & FASTQC -----#')
-            
-#             pear_output_paths = get_fastq_file_paths(f'{input}', run_path)
-    
-#             samples_to_trim = []
-    
-#             with open(f'{run_path}/{sample_filter}_trim_data.csv') as trim_csv:
-#                 samples_to_trim = list(csv.DictReader(trim_csv))
-            
-#             for pear_output_path in pear_output_paths:
-#                 assembled_fastq_file = pear_output_path.split('/')[-1]
-#                 assembled_fastq_path = f'{pear_output_path}/{assembled_fastq_file}'
-                
-#                 sample_dir_name = fastq_file.split('.')[0]
-#                 sample_id = '_'.join(sample_dir_name.split('_')[:-1])
-                
-#                 trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
-#                 f_amp_primer = trimmed_sample_data['f_amp_primer']
-#                 r_amp_primer = trimmed_sample_data['r_amp_primer']
-#                 f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
-#                 r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
-#                 target_length = trimmed_sample_data['target_length']
-#                 error = trimmed_sample_data['error']
-#                 trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
-    
-#                 shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{assembled_fastq_file}')
-
-# def get_extensions(cutadapt_trim):
-#     if cutadapt_trim == True:
-#         return ['assembled.fastq', 'assembled.trimmed.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']
-#     else:
-#         return ['assembled.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']
 
 
 def get_fastq_file_paths(samplesheet, run_path):
@@ -235,106 +185,139 @@ rule prep_fastqs_for_countess:
         (echo "Complete") > {output}
         """
 
-rule run_countess_vampseq:
-    input: expand(f'{run_path}/pear_output/{{fastq}}.assembled.fastq', fastq = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)[:2])
+
+#----- Get raw counts -----
+rule run_countess_counting:
+    input: expand(f'{run_path}/pear_output/{{fastq}}.assembled.fastq', fastq = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path))
     output: f'{run_path}/cutoffs.csv'
+    conda: 'rule_envs/countess_env.yaml'
     params:
         run_path = run_path,
-        count_ini = f'default_files/{count_ini}'
+        count_ini = count_ini,
+        default_cutoff = default_cutoff
     shell:
-        """
+        '''
         mkdir -p {params.run_path}/counts
+        (echo "filename,count") > {output}
         
         for FASTQ_PATH in {input}; do
             FILENAME=$(basename $FASTQ_PATH)
-            echo "$FILENAME"
-            echo countess_cmd --set 'LoadFASTQ.files.0.filename="$FASTQ_PATH"' --set 'SaveRawCounts.filename="{params.run_path}/counts/$FILENAME.csv"' {params.count_ini}
+            SAMPLE_ID=${{FILENAME%.assembled*}}
+            (echo "$SAMPLE_ID,{params.default_cutoff}") >> {output}
+            echo "$FASTQ_PATH"
+            echo countess_cmd --set LoadFASTQ.files.0.filename='"'$FASTQ_PATH'"' --set SaveRawCounts.filename='"'{params.run_path}/counts/$SAMPLE_ID.csv'"' {params.count_ini}
+            countess_cmd --set LoadFASTQ.files.0.filename='"'$FASTQ_PATH'"' --set SaveRawCounts.filename='"'{params.run_path}/counts/$SAMPLE_ID.csv'"' --log=debug {params.count_ini}
         done
-        
-        (echo "Complete") > {output}
-        """
+        '''
+
                        
-# ----- Run CountESS -----
-# rule run_countess_vampseq:
-#     input: f'{run_path}/demux.txt'
-#     output: f'{run_path}/cutoffs.csv'
-#     params:
-#         fastq_paths = get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)
-#     run:
-#         print('#----- RUNNING COUNTESS -----#')
-#         default_cutoff = []
-#         shell(f'mkdir {run_path}/counts')
+# ----- Create cutoff histograms -----
+rule create_cutoff_hists:
+    input: f'{run_path}/cutoffs.csv'
+    output: f'{run_path}/metrics/raw_count_hists.jpeg'
+    params: 
+        samples = [x.split('/')[-1] for x in get_fastq_file_paths(f'{run_path}/{sample_filter}_samplesheet.csv', run_path)]
+    run:
+        shell(f'mkdir -p {run_path}/metrics')
+        unfiltered_counts = pd.read_csv(f'{input}')
+
+        reps = int(len(count_files) / 4)
+        fig, axes = plt.subplots(reps, 4, figsize=(25,15))
         
+        total_count_obj = {}
+        unique_barcode_obj = {}
         
-#         for fastq in params.fastq_paths[:1]:
-#             filename = fastq.split('/')[-1].split('.')[0]
-#             # shell(f'echo countess_cmd --set \'LoadFASTQ.files.0.filename=\"{run_path}/pear_output/{fastq}.assembled.fastq\"\' --set \'SaveRawCounts.filename=\"{run_path}/counts/{filename}.csv\"\' default_files/raw_count.ini')
-#             shell(f'countess_cmd --set \'LoadFASTQ.files.0.filename="{run_path}/pear_output/{fastq}.assembled.fastq"\' --set \'SaveRawCounts.filename="{run_path}/counts/{filename}.csv"\' default_files/raw_count.ini')
-                
-#             default_cutoff.append({
-#                 'filename': filename,
-#                 'cutoff': default_cutoff
-#             })
-                
-#         with open(f'{output}', 'w+', newline='', encoding='utf-8') as cutoff_csv:
-#             cutoff_file = csv.DictWriter(cutoff_csv, fieldnames = ['filename', 'cutoff'])
-#             for row in default_cutoff:
-#                 cutoff_file.writerow(row)
+        x = 0
+        y = 0
+        count_files.sort()
+        for count_file in count_files:
+            sample_id = count_file.split('/')[-1][:-4]
+            unfiltered_counts = pd.read_csv(f'{count_file}')
+            total_count_obj[sample_id] = unfiltered_counts['count'].sum()
+            unique_barcode_obj[sample_id] = len(unfiltered_counts)
+            
+            
+            ax = axes[y, x]
+            ax.hist(unfiltered_counts, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
+            ax.set_title(f'Read Count Histogram - {sample_id}')
+            ax.set_xlabel('Read Counts (Log Scale)')
+            ax.set_ylabel('Frequency (Log Scale)')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
+            ax.grid(True)
+            
+            if x == 3:
+                x = 0
+                y += 1
+            else:
+                x += 1
+        
+        fig.tight_layout() 
+        fig.savefig(f'{output}')
+
+        # Read Count
+        fig, axes = plt.subplots(2, 1, figsize=(15,15))
+        axes[0].bar(list(total_count_obj.keys()), list(total_count_obj.values()), color='g')
+        axes[0].tick_params(axis = 'x', labelrotation = 90)
+        axes[0].set_title('Total Reads')
+        
+        #unique read count
+        axes[1].bar(list(unique_barcode_obj.keys()), list(unique_barcode_obj.values()), color='b')
+        axes[1].tick_params(axis = 'x', labelrotation = 90)
+        axes[1].set_title('Unique Reads')
+        fig.tight_layout()
+        fig.savefig(f'{run_path}/metrics/total_and_unique_reads.jpeg')
+
+# ----- Run Scoring INI file -----
+rule run_countess_scoring:
+    input: f'{run_path}/cutoffs.csv'
+    output: f'{run_path}/countess_score.csv'
+    conda: 'rule_envs/countess_env.yaml'
+    params:
+        run_path = run_path,
+        score_ini = score_ini,
+        barcode_variant_map = barcode_variant_map,
+    shell:
+        '''
+        echo countess_cmd --set LoadCutoff.files.0.filename='"'{input}"' --set LoadCutoff.files.0.filename='"'{input}"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}"' "'"--set LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
+        
+        countess_cmd --set LoadCutoff.files.0.filename='"'{input}"' \
+        --set LoadCutoff.files.0.filename='"'{input}"' \
+        --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}"' \
+        "'"--set LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv"'"'" \
+        --set SaveScores.filename='"'{output}'"' \
+        --log=debug {params.score_ini}
+        '''
 
 # ----- Create Plots -----
 rule create_plots:
-    input: f'{run_path}/countess.txt'
+    input: f'{run_path}/countess_score.csv'
     output: f'{run_path}/metrics/correlation_matrix.jpeg'
     run:
         print('#----- Creating Plots -----#')
-        shell(f'mkdir -p {run_path}/metrics')
-        unfiltered_counts = pd.read_csv(f'{run_path}/unfiltered_counts.csv')
-        num_count_cols = unfiltered_counts.columns.tolist()[1:]
-        total_counts = unfiltered_counts[num_count_cols].sum()
-        unique_barcodes = unfiltered_counts[num_count_cols].astype(bool).sum(axis = 0)
-        shell(f'mkdir -p {run_path}/metrics/read_hists')
 
-        def plot_histogram(count_series, sample):
-            # plt.figure(figsize=(8, 6))
-            plt.hist(count_series, histtype='step', log=True, bins=10**np.linspace(0, 4.5, 100))
-            plt.xscale('log')
-            plt.yscale('log')
-            plt.title(f'Read Count Histogram - {sample}')
-            plt.xlabel('Read Counts (Log Scale)')
-            plt.ylabel('Frequency (Log Scale)')
-            plt.grid(True)
-            plt.savefig(f'{run_path}/metrics/read_hists/{sample}.jpeg')
-            
-        for col in num_count_cols:
-            plot_histogram(unfiltered_counts[col], col)
-
-        vampseq_output = pd.read_csv(f'../{run_path}/final_scores.csv')
-        fig, axs = plt.subplots(1, 3)
-        rep = 1
-        for ax in axs:
-            ax.hist(vampseq_output[vampseq_output['set'] == 'Missense'][f'score_rep_{rep}'], bins = 30, color = 'lightgrey', histtype = 'bar', label = 'Missense', edgecolor = 'black')
-            ax.hist(vampseq_output[vampseq_output['set'] == 'Synonymous'][f'score_rep_{rep}'], bins = 30, color = 'blue', histtype = 'bar', label = 'Synonymous', edgecolor = 'black', alpha = 0.7)
-            ax.hist(vampseq_output[vampseq_output['set'] == 'Nonsense'][f'score_rep_{rep}'], bins = 30, color = 'red', histtype = 'bar', label = 'Nonsense', edgecolor = 'black', alpha = 0.5)
-            ax.legend()
-            ax.set_xlabel('VAMPseq scores')
-            ax.set_ylabel('# of Variants')
-            fig.set_figwidth(20)
-            rep += 1
-        fig.savefig(f'{run_path}/metrics/stacked_score_count_hist.jpeg')
+        countess_output = pd.read_csv(f'{input}')
+        fig, axes = plt.subplots(1, 3, figsize=(15,5))
+        
+        # measurements = ['score__rep_1', 'score__rep_2', 'score__rep_3']
+        measurements = ['score_rep_1', 'score_rep_2', 'score_rep_3']
+        
+        for ax, meas in zip(axes, measurements):
+            sns.kdeplot(data=countess_output, x=meas, hue='set', fill=True, ax=ax)
+            ax.set_title(meas)
+        
+        # plt.tight_layout(rect=[0, 0, 1, 0.95])  # To ensure the title fits nicely
+        fig.savefig(f'{run_path}/metrics/stacked_hist.jpeg')
 
                        
-        counts_and_freq = pd.read_csv(f'{run_path}/programmed_freq.csv')
-        for i in range(1, 4):
-            counts_and_freq[f'sum_rep_{i}'] = counts_and_freq[f'count__bin_1__rep_{i}'] + counts_and_freq[f'count__bin_2__rep_{i}'] + counts_and_freq[f'count__bin_3__rep_{i}'] + counts_and_freq[f'count__bin_4__rep_{i}']
-            
-        rep_counts = counts_and_freq[['aaChanges'] + list(counts_and_freq.columns[-3:])]
-        joined = vampseq_output.set_index('aaChanges').join(rep_counts.set_index('aaChanges'))
+        for i in range(1, 3):
+            countess_output[f'sum_rep_{i}'] = countess_output[f'count__bin_1__rep_{i}'] + countess_output[f'count__bin_2__rep_{i}'] + countess_output[f'count__bin_3__rep_{i}']
 
         fig, axs = plt.subplots(1, 3)
         rep = 1
         for ax in axs:
-            x = joined[f'sum_rep_{rep}']
-            y = joined[f'score_rep_{rep}']
+            x = countess_output[f'sum_rep_{rep}']
+            y = countess_output[f'score_rep_{rep}']
             ax.scatter(x, y, s = 5, alpha = 0.5, edgecolor = 'black', linewidth = 0.15)
             ax.set_xscale('log')
             ax.set_xlabel('Count (Log Scale)')
@@ -343,10 +326,10 @@ rule create_plots:
             rep += 1
         fig.savefig(f'{run_path}/metrics/score_total_count_scatter.jpeg')
 
-        
+        # Correlation Matrix
         columns_of_interest = ['score_rep_1', 'score_rep_2', 'score_rep_3']  # Replace with actual column names
         # Select these columns
-        df_selected = vampseq_output[columns_of_interest]
+        df_selected = countess_output[columns_of_interest]
         # Create a PairGrid object and map scatter plots to the upper triangle
         g = sns.PairGrid(df_selected)
         g = g.map_lower(sns.scatterplot)
@@ -358,3 +341,59 @@ rule create_plots:
         # Adjust the plot
         plt.subplots_adjust(top=0.95)
         plt.savefig(f'{output}')
+
+
+# -------------------- CutAdapt/one-off code to clean --------------------
+# Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
+# def index_reverse_compliment_and_trim(barcode_string, trim_amount):
+#     reverse_compliment = {
+#         'A': 'T',
+#         'T': 'A',
+#         'C': 'G',
+#         'G': 'C'
+#     }
+#     reverse_compliment_string = ''
+#     for letter in barcode_string:
+#         reverse_compliment_string = reverse_compliment[letter] + reverse_compliment_string
+    
+#     reverse_compliment_string[:trim_amount]
+#     return reverse_compliment_string[:-trim_amount]
+              
+
+# ----- CutAdapt Trimming -----
+# rule trim_fastqs:
+#     input: f'{run_path}/{sample_filter}_samplesheet.csv'
+#     run:
+#         if cutadapt_trim == True:
+#             print('#----- RUNNING CUTADAPT & FASTQC -----#')
+            
+#             pear_output_paths = get_fastq_file_paths(f'{input}', run_path)
+    
+#             samples_to_trim = []
+    
+#             with open(f'{run_path}/{sample_filter}_trim_data.csv') as trim_csv:
+#                 samples_to_trim = list(csv.DictReader(trim_csv))
+            
+#             for pear_output_path in pear_output_paths:
+#                 assembled_fastq_file = pear_output_path.split('/')[-1]
+#                 assembled_fastq_path = f'{pear_output_path}/{assembled_fastq_file}'
+                
+#                 sample_dir_name = fastq_file.split('.')[0]
+#                 sample_id = '_'.join(sample_dir_name.split('_')[:-1])
+                
+#                 trimmed_sample_data = [sample for sample in samples_to_trim if sample['sample_id'] == sample_id][0]
+#                 f_amp_primer = trimmed_sample_data['f_amp_primer']
+#                 r_amp_primer = trimmed_sample_data['r_amp_primer']
+#                 f_amp_min_overlap = trimmed_sample_data['f_amp_min_overlap']
+#                 r_amp_min_overlap = trimmed_sample_data['r_amp_min_overlap']
+#                 target_length = trimmed_sample_data['target_length']
+#                 error = trimmed_sample_data['error']
+#                 trimmed_file_name = f'{sample_dir_name}.assembled.trimmed.fastq'
+    
+#                 shell(f'cutadapt -g \"{f_amp_primer};min_overlap={f_amp_min_overlap}...{r_amp_primer};min_overlap={r_amp_min_overlap}\" -e {error} -m {target_length} -M {target_length} -o {pear_output_path}/{trimmed_file_name} {pear_output_path}/{assembled_fastq_file}')
+
+# def get_extensions(cutadapt_trim):
+#     if cutadapt_trim == True:
+#         return ['assembled.fastq', 'assembled.trimmed.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']
+#     else:
+#         return ['assembled.fastq', 'discarded.fastq', 'unassembled.forward.fastq', 'unassembled.reverse.fastq']

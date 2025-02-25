@@ -1,0 +1,4 @@
+dependencies:
+- python =3.12
+- pip:
+    - countess==0.0.84
