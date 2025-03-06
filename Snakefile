@@ -12,10 +12,12 @@ modules = config['modules']
 
 # ----- Pipeline Parameters -----
 base_sample_sheet = f'user_input/{config["base_sample_sheet"]}'
-barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
+# barcode_variant_map = f'user_input/{config["barcode_variant_map"]}'
 count_ini = f'default_files/{config["count_ini"]}'
-score_ini = f'user_input/{config["score_ini"]}'
+# score_ini = f'user_input/{config["score_ini"]}'
+score_csv = f'user_input/{config["score_csv"]}'
 default_cutoff = config["default_cutoff"]
+num_reps = config["num_reps"]
 sample_filter = config['sample_filter'] if bool(config['sample_filter']) else 'Complete'
 bcl2fastq_argumets = config['bcl2fastq_arguments']
 raw_data_directory = config['input_data_path']
@@ -33,9 +35,10 @@ if config['run_type'] == 'demux':
     step_output = f'{run_path}/prep_fastqs.txt'
 elif config['run_type'] == 'count':
     step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/metrics/raw_count_hists.jpeg']
+elif config['run_type'] == 'metrics':
+    step_output = f'{run_path}/metrics/correlation_matrix.jpeg'
 else:
-    step_output = [f'{run_path}/metrics/correlation_matrix.jpeg']
-    # step_output = [f'{run_path}/countess_score.csv', f'{run_path}/metrics/correlation_matrix.jpeg']
+    step_output = [f'{run_path}/prep_fastqs.txt', f'{run_path}/metrics/raw_count_hists.jpeg']
 
 
 rule all:
@@ -222,8 +225,7 @@ rule create_cutoff_hists:
         shell(f'mkdir -p {run_path}/metrics')
         count_files = params.samples
 
-        reps = int(len(count_files) / 4)
-        fig, axes = plt.subplots(reps, 4, figsize=(25,15))
+        fig, axes = plt.subplots(num_reps, 4, figsize=(25,15))
         
         total_count_obj = {}
         unique_barcode_obj = {}
@@ -270,19 +272,19 @@ rule create_cutoff_hists:
 
            
 # ----- Run Scoring INI file -----
-rule run_countess_scoring:
-    input: f'{run_path}/cutoffs.csv'
-    output: f'{run_path}/countess_score.csv'
-    conda: 'rule_envs/countess_env.yaml'
-    params:
-        run_path = run_path,
-        score_ini = score_ini,
-        barcode_variant_map = barcode_variant_map,
-    shell:
-        '''
-        echo countess_cmd --set LoadCutoff.files.0.filename='"'{input}'"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}'"' --set "'"LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv'"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
-        countess_cmd --set LoadCutoff.files.0.filename='"'{input}'"' --set LoadBarcodeMap.files.0.filename='"'{params.barcode_variant_map}'"' --set "'"LoadTotalCount.files.0.filename='"'{params.run_path}/counts/*.csv'"'"'" --set SaveScores.filename='"'{output}'"' --log=debug {params.score_ini}
-        '''
+# rule create_countess_command:
+#     input: f'{run_path}/cutoffs.csv'
+#     output: f'{run_path}/countess_score.sh'
+#     params:
+#         run_path = run_path,
+#         score_ini = score_ini,
+#         barcode_variant_map = barcode_variant_map,
+#         countess_score = f'{run_path}/countess_score.csv'
+#     shell:
+#         r'''
+#         pwd={workflow.basedir}
+#         countess_cmd --set \'LoadCutoff.files.0.filename=\"$pwd/{input}\"\' --set \'LoadBarcodeMap.files.0.filename=\"$pwd/{params.barcode_variant_map}\"\' --set \'LoadTotalCount.files.0.filename=\"$pwd/{params.run_path}/counts/*.csv\"\' --set \'SaveScores.filename=\"$pwd/{output}\"\' --log=debug $pwd/{params.score_ini}
+#         '''
 
            
 # ----- Create Plots -----
@@ -298,10 +300,9 @@ rule create_plots:
     run:
         print('#----- Creating Plots -----#')
 
-        countess_output = pd.read_csv(f'{run_path}/countess_score.csv')
+        countess_output = pd.read_csv(f'{run_path}/countess_scores.csv')
         fig, axes = plt.subplots(1, 3, figsize=(15,5))
         
-        # measurements = ['score__rep_1', 'score__rep_2', 'score__rep_3']
         measurements = ['score_rep_1', 'score_rep_2', 'score_rep_3']
         
         for ax, meas in zip(axes, measurements):
@@ -311,14 +312,15 @@ rule create_plots:
         # plt.tight_layout(rect=[0, 0, 1, 0.95])  # To ensure the title fits nicely
         fig.savefig(f'{run_path}/metrics/stacked_hist.jpeg')
 
-                       
-        for i in range(1, 3):
-            countess_output[f'sum_rep_{i}'] = countess_output[f'count__bin_1__rep_{i}'] + countess_output[f'count__bin_2__rep_{i}'] + countess_output[f'count__bin_3__rep_{i}']
+        rep_sums = {}               
+        for i in range(1, num_reps+1):
+            rep_sums[f'sum_rep_{i}'] = countess_output[f'count__bin_1__rep_{i}'] + countess_output[f'count__bin_2__rep_{i}'] + countess_output[f'count__bin_3__rep_{i}'] + countess_output[f'count__bin_4__rep_{i}']
 
+        print(rep_sums)
         fig, axs = plt.subplots(1, 3)
         rep = 1
         for ax in axs:
-            x = countess_output[f'sum_rep_{rep}']
+            x = rep_sums[f'sum_rep_{rep}']
             y = countess_output[f'score_rep_{rep}']
             ax.scatter(x, y, s = 5, alpha = 0.5, edgecolor = 'black', linewidth = 0.15)
             ax.set_xscale('log')
@@ -345,7 +347,7 @@ rule create_plots:
         plt.savefig(f'{output}')
 
 
-# -------------------- CutAdapt/one-off code to clean --------------------
+# -------------------- CutAdapt/one-off code to fix/clean --------------------
                           
 # Only needed in some instances, place around the I7 and I5 sequences (index and index2) in samplesheet
 # def index_reverse_compliment_and_trim(barcode_string, trim_amount):
