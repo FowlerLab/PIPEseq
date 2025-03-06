@@ -5,7 +5,7 @@ score_csv: countess_scores.csv
 score_ini: vampseq_default.ini
 barcode_variant_map: pacbio_output_TSC2lib2.csv.gz
 input_data_path: /net/fowler/vol1/shared/pipeseq_demo/240827_VH00123_477_AACL7HVHV
-run_type: 
+run_type: demux
 sample_filter: TSC2_L2
 num_reps: 3
 default_cutoff: 75
